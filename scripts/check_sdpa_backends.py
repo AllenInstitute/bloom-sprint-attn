@@ -4,15 +4,17 @@ PyTorch's :func:`torch.nn.functional.scaled_dot_product_attention` chooses
 among four backends:
 
   * ``FLASH_ATTENTION`` - fused kernel, fp16/bf16, CUDA SM >= 8.0,
-    per-head dim <= 256 (PyTorch >= 2.2).
-  * ``EFFICIENT_ATTENTION`` - memory-efficient kernel (xFormers lineage).
+    per-head dim <= 256 (PyTorch >= 2.2), and equal Q/K/V head dim.
+  * ``EFFICIENT_ATTENTION`` - memory-efficient kernel (xFormers lineage),
+    permits asymmetric Q/V head dim.
   * ``CUDNN_ATTENTION`` - when available in the cuDNN runtime.
   * ``MATH`` - fallback that works anywhere with no fusion.
 
-We force each backend in turn and report whether it accepts our input. With
-the spec's default dims, the QK head dim is ``d_u + 2K = 32 + 224 = 256`` -
-right at the flash upper limit, so this diagnostic is the cleanest way to
-confirm whether flash dispatches in practice.
+We force each backend in turn and report whether it accepts our input.
+We run the sweep twice: once with the default layer (Q/K head dim 256,
+V head dim 64) and once with ``pad_v_for_flash=True`` (V zero-padded to
+match QK head dim, sliced back after SDPA). The flash row should go
+from FAIL to PASS between the two sweeps when the device supports flash.
 
 Usage
 -----
@@ -41,17 +43,28 @@ def header(s: str) -> None:
     print(f"\n=== {s} ===")
 
 
-def _build_layer(device: str, dtype: torch.dtype) -> tuple[ChromLocalPosEncoder, SpatialAttentionSDPA]:
+def _build_layer(
+    device: str,
+    dtype: torch.dtype,
+    pad_v_for_flash: bool,
+) -> tuple[ChromLocalPosEncoder, SpatialAttentionSDPA]:
     encoder = ChromLocalPosEncoder(d_u=32, K=K, lambda_min=10.0, lambda_max=1.0e8).to(device)
     layer = SpatialAttentionSDPA(
         d_s=D_S, d_v=D_V, H=H, K=K, lambdas=encoder.fourier.lambdas,
         target_scales=TARGET_SCALES,
+        pad_v_for_flash=pad_v_for_flash,
     ).to(device).to(dtype)
     return encoder, layer
 
 
-def probe(dtype: torch.dtype, device: str, B: int = 2, N: int = 64) -> None:
-    encoder, layer = _build_layer(device, dtype)
+def probe(
+    dtype: torch.dtype,
+    device: str,
+    pad_v_for_flash: bool,
+    B: int = 2,
+    N: int = 64,
+) -> None:
+    encoder, layer = _build_layer(device, dtype, pad_v_for_flash)
     coords = (torch.rand(B, N) * 1.0e7).to(device)
     keys = [[("musmus", "mm10", "chr1")] * N for _ in range(B)]
     pos = encoder(coords, keys)
@@ -60,9 +73,11 @@ def probe(dtype: torch.dtype, device: str, B: int = 2, N: int = 64) -> None:
     s = torch.randn(B, N, D_S, device=device, dtype=dtype)
 
     head_dim_qk = u_.shape[-1] + r_.shape[-1]
+    v_head_dim = head_dim_qk if pad_v_for_flash else layer.d_v
     print(
         f"device={device}, dtype={dtype}, head_dim(Q,K)={head_dim_qk}, "
-        f"head_dim(V)={layer.d_v}, B={B}, N={N}, H={layer.H}"
+        f"head_dim(V)={v_head_dim}, pad_v_for_flash={pad_v_for_flash}, "
+        f"B={B}, N={N}, H={layer.H}"
     )
 
     backends = [
@@ -94,17 +109,20 @@ def main() -> int:
         print("CUDA not available - only MATH backend on CPU is meaningful.")
 
     if torch.cuda.is_available():
-        header("bfloat16 on CUDA (flash-attention's preferred dtype)")
-        probe(torch.bfloat16, "cuda")
+        for pad in (False, True):
+            header(
+                f"bfloat16 on CUDA (flash-preferred dtype), pad_v_for_flash={pad}"
+            )
+            probe(torch.bfloat16, "cuda", pad_v_for_flash=pad)
 
-        header("float16 on CUDA")
-        probe(torch.float16, "cuda")
+            header(f"float16 on CUDA, pad_v_for_flash={pad}")
+            probe(torch.float16, "cuda", pad_v_for_flash=pad)
 
-        header("float32 on CUDA (flash refuses fp32 by design)")
-        probe(torch.float32, "cuda")
+            header(f"float32 on CUDA (flash refuses fp32), pad_v_for_flash={pad}")
+            probe(torch.float32, "cuda", pad_v_for_flash=pad)
 
     header("float32 on CPU (only MATH applies)")
-    probe(torch.float32, "cpu")
+    probe(torch.float32, "cpu", pad_v_for_flash=False)
 
     return 0
 

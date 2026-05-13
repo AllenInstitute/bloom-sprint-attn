@@ -19,24 +19,35 @@ Construct per-head Q^{(h)}, K^{(h)} of dimension ``d_u + 2K`` such that
     K^{(h)}_j = sqrt(tau_h) * [beta_h * u_j ;  w_tiled[h] (.) r_phi_j]
 
 Then Q^{(h)}_i . K^{(h)}_j = l_{ij}^{(h)} exactly. We pass ``scale=1.0`` to
-SDPA so it does NOT apply its default ``1/sqrt(d_k)`` scaling — ``tau_h`` is
-the only scaling we want.
+SDPA so it does NOT apply its default ``1/sqrt(d_k)`` scaling -- ``tau_h``
+is the only scaling we want.
 
 Shape contract for SDPA: ``[B, H, N, head_dim]``.
 
-Backend dispatch
-----------------
+Backend dispatch and the ``pad_v_for_flash`` switch
+---------------------------------------------------
 PyTorch SDPA chooses between FLASH_ATTENTION, EFFICIENT_ATTENTION,
 CUDNN_ATTENTION, and MATH backends. Flash kicks in when:
 
   - dtype is float16 or bfloat16,
   - device is CUDA with compute capability >= 8.0,
-  - per-head dim <= 256 (PyTorch >= 2.2; 128 in older versions).
+  - per-head dim <= 256 (PyTorch >= 2.2; 128 in older versions),
+  - **head_dim(Q) == head_dim(K) == head_dim(V)** -- flash requires the
+    three to match.
 
-With spec defaults (``d_u=32``, ``K=112``), our head_dim is
-``32 + 2*112 = 256`` — exactly at the flash upper limit.
-``scripts/check_sdpa_backends.py`` reports which kernel actually dispatches
-on the target device.
+With spec defaults (``d_u=32``, ``K=112``), our QK head_dim is
+``32 + 2*112 = 256`` but our V head_dim is ``d_v = 64``, so the asymmetry
+disqualifies flash. The xFormers-lineage EFFICIENT_ATTENTION backend has
+no such restriction and dispatches in bf16/fp16.
+
+If you want a true flash dispatch, instantiate with
+``pad_v_for_flash=True``. The forward then right-pads ``V`` with zeros
+along the head dimension up to the QK head dim before SDPA, and slices
+the output back to ``d_v`` afterward. Padding with zeros is
+mathematically inert: SDPA's output is a softmax-weighted sum over the
+sequence axis, so the padded V columns produce padded output columns,
+which we discard. Cost: V tile is ``head_dim_qk / d_v`` times larger
+(~4x with spec defaults); attention scores are unchanged.
 """
 
 from __future__ import annotations
@@ -50,12 +61,33 @@ from bloom_arch.attention.spatial import SpatialAttention
 class SpatialAttentionSDPA(SpatialAttention):
     """Drop-in SDPA implementation of :class:`SpatialAttention`.
 
-    Same constructor signature, same parameter shapes, same initialization,
-    so ``state_dict`` round-trips with the parent class. The only change is
-    the forward path: instead of an explicit ``einsum`` + ``softmax``, we
-    build per-head Q,K,V tensors and call
-    ``torch.nn.functional.scaled_dot_product_attention``.
+    Same constructor signature as :class:`SpatialAttention`, with one
+    extra keyword:
+
+    Parameters
+    ----------
+    pad_v_for_flash : bool, default False
+        If True, pad ``V`` with zeros along the head dimension to match
+        the QK head dim before calling SDPA, then slice the output back
+        to ``d_v``. Required to satisfy PyTorch's flash-attention
+        backend, which insists on equal Q/K/V head dims. Has no effect
+        on the math; only on which SDPA backend dispatches.
+
+    Notes
+    -----
+    State dict round-trips with :class:`SpatialAttention` (no new
+    parameters are added by either ``__init__`` extension or the
+    padding switch).
     """
+
+    def __init__(
+        self,
+        *args,
+        pad_v_for_flash: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.pad_v_for_flash = pad_v_for_flash
 
     def forward(  # type: ignore[override]
         self,
@@ -83,14 +115,24 @@ class SpatialAttentionSDPA(SpatialAttention):
         r_part = r_phi.unsqueeze(1) * w_tiled.view(1, H, 1, -1)
 
         # Concatenate and absorb sqrt(tau_h) so SDPA's scale=1.0 gives tau_h * Q.K^T.
-        qk = torch.cat([u_part, r_part], dim=-1) * sqrt_tau                # [B, H, N, d_u+2K]
+        qk = torch.cat([u_part, r_part], dim=-1) * sqrt_tau                # [B, H, N, head_dim_qk]
+        head_dim_qk = qk.shape[-1]
 
         # V: project sequence into per-head values.
         v = self.W_V(s).view(B, N, H, d_v).transpose(1, 2).contiguous()    # [B, H, N, d_v]
 
-        # Positional self-attention: Q == K. SDPA expects the same dtype for Q, K, V.
-        # Caller controls precision via .to(dtype) on the module + inputs.
-        out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+        if self.pad_v_for_flash and head_dim_qk > d_v:
+            # Pad V with zeros along the head dim to match QK. Zeros are
+            # inert under softmax-weighted summation, so the padded output
+            # columns can be sliced off after SDPA without changing the
+            # result.
+            v_padded = F.pad(v, (0, head_dim_qk - d_v))                    # [B, H, N, head_dim_qk]
+            out_padded = F.scaled_dot_product_attention(qk, qk, v_padded, scale=1.0)
+            out = out_padded[..., :d_v].contiguous()                       # [B, H, N, d_v]
+        else:
+            # Positional self-attention: Q == K. SDPA expects the same
+            # dtype for Q, K, V; caller controls precision via .to(dtype).
+            out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)     # [B, H, N, d_v]
         return out.transpose(1, 2).contiguous()                             # [B, N, H, d_v]
 
     def forward_explicit(
