@@ -46,7 +46,9 @@ def _default_log_gaussian_init(
     so ``w[h, k] = exp(log_w[h, k])`` is a log-Gaussian centered at ``L_h``.
     """
     log_lambdas = torch.log(lambdas)  # [K]
-    log_L = torch.log(torch.tensor(list(target_scales), dtype=torch.float32))  # [H]
+    log_L = torch.log(
+        torch.tensor(list(target_scales), dtype=lambdas.dtype, device=lambdas.device)
+    )  # [H]
     diff = log_lambdas.unsqueeze(0) - log_L.unsqueeze(1)  # [H, K]
     return -(diff ** 2) / (2.0 * rho ** 2)
 
