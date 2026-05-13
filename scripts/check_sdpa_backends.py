@@ -59,7 +59,7 @@ def probe(dtype: torch.dtype, device: str, B: int = 2, N: int = 64) -> None:
     r_ = pos["r_phi"].to(dtype)
     s = torch.randn(B, N, D_S, device=device, dtype=dtype)
 
-    head_dim_qk = layer.d_u + 2 * layer.K
+    head_dim_qk = u_.shape[-1] + r_.shape[-1]
     print(
         f"device={device}, dtype={dtype}, head_dim(Q,K)={head_dim_qk}, "
         f"head_dim(V)={layer.d_v}, B={B}, N={N}, H={layer.H}"
