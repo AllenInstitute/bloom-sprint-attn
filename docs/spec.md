@@ -204,13 +204,8 @@ $$
 Then:
 
 $$
+\phi(x) = [\sin(2\pi x/\lambda_1),\ \cos(2\pi x/\lambda_1),\ \dots,\ \sin(2\pi x/\lambda_K),\ \cos(2\pi x/\lambda_K)]
 $$
-\phi(x) = [
-\sin(2\pi x / \lambda_1),
-\cos(2\pi x / \lambda_1),
-\dots,
-\sin(2\pi x / \lambda_K),
-\cos(2\pi x / \lambda_K)
 
 Thus:
 
@@ -243,8 +238,7 @@ For a single sine/cosine pair:
 $$
 \sin(2\pi x_i/\lambda)\sin(2\pi x_j/\lambda) +
 \cos(2\pi x_i/\lambda)\cos(2\pi x_j/\lambda)
-============================================
-
+=
 \cos(2\pi(x_i-x_j)/\lambda)
 $$
 
@@ -521,8 +515,7 @@ For two coordinates $x_i, x_j$ on the same chromosome:
 
 $$
 (r_g\odot\phi(x_i))^\top(r_g\odot\phi(x_j))
-===========================================
-
+=
 \phi(x_i)^\top\phi(x_j)
 $$
 
