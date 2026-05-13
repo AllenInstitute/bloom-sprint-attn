@@ -1,0 +1,108 @@
+"""Multiscale Fourier coordinate encoding (spec §6).
+
+For a coordinate ``x`` along a chromosome (in base pairs), this module returns
+
+    φ(x) = (1/√K) · [ sin(2π x / λ_1), cos(2π x / λ_1),
+                       sin(2π x / λ_2), cos(2π x / λ_2),
+                       ...,
+                       sin(2π x / λ_K), cos(2π x / λ_K) ]
+
+with wavelengths log-spaced between ``lambda_min`` and ``lambda_max``. The
+output is interleaved (sin, cos) per wavelength so the head-specific
+wavelength weights ``w_h`` can be tiled by `repeat_interleave(2)`.
+
+Properties (verified in tests/test_posenc.py):
+
+* Translation invariance of the dot product: ``φ(x_i)·φ(x_j) = (1/K) Σ_k cos(2π(x_i-x_j)/λ_k)``
+  depends only on |x_i − x_j|, not on absolute coordinate (spec §6.1).
+* No learnable parameters; the log-spaced wavelengths are stored as a buffer.
+"""
+
+from __future__ import annotations
+
+import math
+
+import torch
+from torch import nn
+
+
+class FourierCoordEncoder(nn.Module):
+    """Log-spaced multiscale Fourier feature map for genomic coordinates.
+
+    Parameters
+    ----------
+    K : int
+        Number of wavelengths. Output dim is ``2*K``.
+    lambda_min : float
+        Finest wavelength (base pairs). Spec §10.2 default: 10.0.
+    lambda_max : float
+        Coarsest wavelength (base pairs). Spec §10.2 default: 1e8 (100 Mb).
+
+    Notes
+    -----
+    For ``K=1`` the wavelength geometric sequence has only one entry, equal to
+    ``lambda_min`` (``lambda_max`` is ignored). For ``K>=2`` the wavelengths
+    are placed at ``λ_k = lambda_min · (lambda_max/lambda_min)^(k/(K-1))`` for
+    ``k = 0..K-1``.
+
+    The dot-product identity from spec §6.1 holds for the *unnormalized*
+    encoding. Because we multiply the whole vector by ``1/√K``, the dot product
+    becomes ``(1/K) Σ_k cos(2π(x_i-x_j)/λ_k)`` whose value is in ``[-1, 1]`` and
+    is exactly ``1`` when ``x_i = x_j``. This makes the kernel magnitudes
+    predictable across choices of ``K`` (spec §6.2).
+    """
+
+    def __init__(self, K: int = 112, lambda_min: float = 10.0, lambda_max: float = 1.0e8) -> None:
+        super().__init__()
+        if K < 1:
+            raise ValueError(f"K must be >= 1, got {K}")
+        if lambda_min <= 0 or lambda_max <= 0:
+            raise ValueError("wavelengths must be positive")
+        if K >= 2 and lambda_max <= lambda_min:
+            raise ValueError("lambda_max must exceed lambda_min when K >= 2")
+
+        self.K = K
+        self.lambda_min = float(lambda_min)
+        self.lambda_max = float(lambda_max)
+
+        if K == 1:
+            lambdas = torch.tensor([lambda_min], dtype=torch.float32)
+        else:
+            exponents = torch.arange(K, dtype=torch.float32) / (K - 1)
+            ratio = lambda_max / lambda_min
+            lambdas = lambda_min * (ratio ** exponents)
+
+        # Angular frequencies ω_k = 2π / λ_k. Stored as buffer so .to(device) works.
+        omegas = 2.0 * math.pi / lambdas
+        self.register_buffer("omegas", omegas)  # [K]
+        self.register_buffer("lambdas", lambdas)  # [K], handy for plotting / tests
+
+        self._scale = 1.0 / math.sqrt(K)
+
+    @property
+    def d_phi(self) -> int:
+        return 2 * self.K
+
+    def forward(self, coords: torch.Tensor) -> torch.Tensor:
+        """Encode coordinates.
+
+        Parameters
+        ----------
+        coords : Tensor
+            Any shape ``[...]`` of float-valued genomic coordinates (in bp).
+
+        Returns
+        -------
+        phi : Tensor of shape ``[..., 2*K]``
+            Interleaved (sin, cos) per wavelength, scaled by ``1/√K``.
+        """
+        # Promote omegas to the coords device/dtype.
+        omegas = self.omegas.to(device=coords.device, dtype=coords.dtype)
+        # angles[..., k] = ω_k * x
+        angles = coords.unsqueeze(-1) * omegas  # broadcast → [..., K]
+        sin = torch.sin(angles)
+        cos = torch.cos(angles)
+        # Interleave (sin_k, cos_k) along the last dim:
+        # stack to [..., K, 2] then flatten the last two dims.
+        out = torch.stack((sin, cos), dim=-1).flatten(-2)  # [..., 2K]
+        return out * self._scale
