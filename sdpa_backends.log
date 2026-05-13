@@ -1,0 +1,52 @@
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: Memory efficient kernel not used because: (Triggered internally at /pytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:776.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: Memory Efficient attention has been runtime disabled. (Triggered internally at /pytorch/aten/src/ATen/native/transformers/sdp_utils_cpp.h:551.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: Flash attention kernel not used because: (Triggered internally at /pytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:778.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: Flash attention requires q,k,v to have the same last dimension and to be less than or equal to 256. Got Query.size(-1): 256, Key.size(-1): 256, Value.size(-1): 64 instead. (Triggered internally at /pytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:120.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: CuDNN attention kernel not used because: (Triggered internally at /pytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:780.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: CuDNN attention has been runtime disabled. (Triggered internally at /pytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:528.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: Flash attention has been runtime disabled. (Triggered internally at /pytorch/aten/src/ATen/native/transformers/sdp_utils_cpp.h:539.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: head_dim should be no more than 128 (Triggered internally at /pytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:375.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: Flash attention kernel not used because: (Triggered internally at /pytorch/aten/src/ATen/native/transformers/sdp_utils_cpp.cpp:98.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+/home/ubuntu/code/bloom-arch/src/bloom_arch/attention/spatial_sdpa.py:93: UserWarning: Flash attention requires q,k,v to have the same last dimension. Got Query.size(-1): 256, Key.size(-1): 256, Value.size(-1): 64 instead. (Triggered internally at /pytorch/aten/src/ATen/native/transformers/sdp_utils_cpp.cpp:20.)
+  out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)         # [B, H, N, d_v]
+PyTorch: 2.6.0+cu124
+CUDA build:  12.4
+GPU:         NVIDIA L4
+Compute cap: sm_89
+
+=== bfloat16 on CUDA (flash-attention's preferred dtype) ===
+device=cuda, dtype=torch.bfloat16, head_dim(Q,K)=256, head_dim(V)=64, B=2, N=64, H=6
+  [FAIL] FLASH_ATTENTION: No available kernel. Aborting execution.
+  [PASS] EFFICIENT_ATTENTION: out=(2, 64, 6, 64) dtype=torch.bfloat16
+  [FAIL] CUDNN_ATTENTION: No available kernel. Aborting execution.
+  [PASS] MATH: out=(2, 64, 6, 64) dtype=torch.bfloat16
+
+=== float16 on CUDA ===
+device=cuda, dtype=torch.float16, head_dim(Q,K)=256, head_dim(V)=64, B=2, N=64, H=6
+  [FAIL] FLASH_ATTENTION: No available kernel. Aborting execution.
+  [PASS] EFFICIENT_ATTENTION: out=(2, 64, 6, 64) dtype=torch.float16
+  [FAIL] CUDNN_ATTENTION: No available kernel. Aborting execution.
+  [PASS] MATH: out=(2, 64, 6, 64) dtype=torch.float16
+
+=== float32 on CUDA (flash refuses fp32 by design) ===
+device=cuda, dtype=torch.float32, head_dim(Q,K)=256, head_dim(V)=64, B=2, N=64, H=6
+  [FAIL] FLASH_ATTENTION: No available kernel. Aborting execution.
+  [PASS] EFFICIENT_ATTENTION: out=(2, 64, 6, 64) dtype=torch.float32
+  [FAIL] CUDNN_ATTENTION: No available kernel. Aborting execution.
+  [PASS] MATH: out=(2, 64, 6, 64) dtype=torch.float32
+
+=== float32 on CPU (only MATH applies) ===
+device=cpu, dtype=torch.float32, head_dim(Q,K)=256, head_dim(V)=64, B=2, N=64, H=6
+  [FAIL] FLASH_ATTENTION: No available kernel.  Aborting execution.
+  [FAIL] EFFICIENT_ATTENTION: No viable backend for scaled_dot_product_attention was found. This is likely due to turning off both the math kernel and the fused kernels.
+  [FAIL] CUDNN_ATTENTION: No viable backend for scaled_dot_product_attention was found. This is likely due to turning off both the math kernel and the fused kernels.
+  [PASS] MATH: out=(2, 64, 6, 64) dtype=torch.float32
