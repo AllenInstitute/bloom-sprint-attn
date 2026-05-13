@@ -1,128 +1,142 @@
 # bloom-arch
 
-Transformer model components for genomic sequence-to-function modeling
-(ATAC-seq focus).
+Chromosome-local positional encoding and typed multi-head attention for
+transformer models that operate on bags of genome-derived features per cell.
 
-## Install
+The user gives the model a bag of features. Each feature carries a content
+embedding `s_i` (from a DNA encoder, an existing token embedding, etc.) and
+a genomic locus `(species, assembly, chromosome, coordinate)`. Attention is
+split into two head types:
 
-```bash
-# create env (one-time)
-conda create -n bloom-arch python=3.12 -y
-$HOME/miniconda3/envs/bloom-arch/bin/pip install -e ".[dev]"
+- **Content heads** — standard self-attention over `s`.
+- **Spatial heads** — attention weights come from the locus; values come
+  from `s`. Same-chromosome features attract; same-coordinate features on
+  *different* chromosomes do not. No learned chromosome lookup tables, so
+  the encoder generalizes to assemblies and species not seen at training.
+
+Each spatial head has a learnable wavelength window centered at a chosen
+length scale (100 bp ... 10 Mb), so a single block can resolve sequence-,
+enhancer-, and TAD-level locality at the same time.
+
+See `docs/spec.md` for the design rationale and `docs/implementation.md`
+for the mathematical details, parameter ranges, and tuning notes.
+
+## Quick start
+
+```python
+import torch
+from bloom_arch.posenc import ChromLocalPosEncoder
+from bloom_arch.attention import TypedMultiHeadAttention
+
+# Dimensions.
+B, N    = 4, 32          # batch, features per cell
+d_s     = 512            # sequence/content width (the model's residual width)
+d_v     = 64             # per-head value dim
+H_c     = 4              # content heads
+H_s     = 6              # spatial heads, one per length scale
+K       = 112            # number of Fourier wavelengths
+
+# 1. Build the positional encoder. Zero learnable parameters.
+encoder = ChromLocalPosEncoder(d_u=32, K=K, lambda_min=10.0, lambda_max=1.0e8)
+
+# 2. Build a typed attention block with content + spatial heads.
+attn = TypedMultiHeadAttention(
+    d_s=d_s, d_v=d_v,
+    H_content=H_c, H_spatial=H_s,
+    K=K, lambdas=encoder.fourier.lambdas,
+    target_scales=[1e2, 1e3, 1e4, 1e5, 1e6, 1e7],  # bp; one per spatial head
+)
+
+# 3. Inputs: content embeddings, coordinates, and (species, assembly, chrom) keys.
+s      = torch.randn(B, N, d_s)
+coords = torch.rand(B, N) * 2.0e8                          # bp on the chromosome
+keys   = [[("mus_musculus", "mm10", "chr1")] * N for _ in range(B)]
+
+# 4. Encode positions, then run attention.
+pos = encoder(coords, keys)                                # {"u": ..., "r_phi": ...}
+out = attn(s, u=pos["u"], r_phi=pos["r_phi"])              # [B, N, d_s]
 ```
+
+A few notes on the interface:
+
+- `coords` are raw base-pair integers cast to a float tensor. Use
+  `dtype=torch.long`-then-`.float()` to avoid precision issues at scales
+  beyond ~1e7 bp. (Float32 has ~7 decimal digits.)
+- `keys[b][n] = (species, assembly, chrom)` are arbitrary strings; the
+  codebook hashes them deterministically. Novel keys at inference time are
+  fine — the codebook will generate stable codes for them on the fly.
+- `target_scales` controls each spatial head's initial center wavelength.
+  Defaults to a geometric spacing across the encoder's `[λ_min, λ_max]`
+  range when omitted.
+
+## Flash Attention / SDPA
+
+For high-throughput training, swap in `SpatialAttentionSDPA`, which
+expresses the same logit as a single `Q·K^T` and runs the
+softmax-matmul step through
+`torch.nn.functional.scaled_dot_product_attention`. The state dict is
+identical to `SpatialAttention`, so you can train one and serve with the
+other.
+
+```python
+from bloom_arch.attention import SpatialAttentionSDPA
+
+# pad_v_for_flash=True zero-pads V to match QK head dim so PyTorch's
+# flash-attention backend will accept the call. Mathematically inert.
+fast = SpatialAttentionSDPA(
+    d_s=d_s, d_v=d_v, H=H_s, K=K, lambdas=encoder.fourier.lambdas,
+    target_scales=[1e2, 1e3, 1e4, 1e5, 1e6, 1e7],
+    pad_v_for_flash=True,
+).cuda().to(torch.bfloat16)
+```
+
+On the L4 (sm_89, PyTorch 2.6+cu124), `pad_v_for_flash=True` + bf16/fp16
+dispatches to FLASH_ATTENTION. Without padding, the call falls back to
+EFFICIENT_ATTENTION (still fast; just not the flash kernel). Reproduce
+with `python scripts/check_sdpa_backends.py`.
+
+## Multi-scale kernel sweep
+
+`scripts/plot_kernel_scales.py` plots the per-head same-chromosome
+kernel `K_h(Δ) = β_h² + (1/K) Σ_k w_{h,k}² cos(2π Δ / λ_k)` across
+`Δ ∈ [1 bp, 100 Mb]`. The saved figure
+(`docs/figures/kernel_sweep.png`) shows clean log-Gaussian decay around
+each head's target scale, with half-decay distances ordered from 23 bp
+(L=100 bp) to 2 Mb (L=10 Mb).
 
 ## Layout
 
 ```
-src/bloom_arch/   library code (importable as `bloom_arch`)
-tests/            pytest suite
-scripts/          one-off / experiment driver scripts
-docs/             design notes
-```
-
-## Components
-
-`bloom_arch` currently implements the **chromosome-local positional encoding**
-and **typed multi-head attention** components from `docs/spec.md`.
-
-### Positional encoding (`bloom_arch.posenc`)
-
-`ChromLocalPosEncoder(d_u=32, K=112, lambda_min=10, lambda_max=1e8)` is a
-parameter-free module that returns two channels per feature:
-
-| key       | shape       | description                                   |
-| --------- | ----------- | --------------------------------------------- |
-| `u`       | [B, N, d_u] | u_g — same-chromosome baseline code (spec §8) |
-| `r_phi`   | [B, N, 2K]  | r_g ⊙ φ(x) — sign-gated Fourier coordinate    |
-
-Chromosome codes `r_g, u_g` are derived deterministically from
-`(species, assembly, chrom)` via BLAKE2b; the codebook generalizes to unseen
-species at test time without any state transfer.
-
-### Attention (`bloom_arch.attention`)
-
-- `ContentAttention` — standard MHA on the sequence embedding (spec §5.1).
-- `SpatialAttention` — uses positional Q,K and sequence V (spec §5.2),
-  with **per-head log-Gaussian wavelength weights** initialized at target
-  scales (spec §12.3). Each head learns `β_h`, `τ_h`, and a non-negative
-  per-wavelength weight vector `w_h`.
-- `TypedMultiHeadAttention` — runs the two head families in parallel.
-
-### Validation
-
-All 21 tests in `tests/` pass — see `pytest.log`. Tests cover every checkpoint
-in spec §11.1–§11.6 plus the §12 multi-scale guarantees and parameter-free
-encoder guards:
-
-- determinism of `r_g`, `u_g` (§11.1)
-- Fourier translation invariance (§6.1) at float64 precision and short-range float32
-- same-chrom sign cancellation (§11.2)
-- cross-chrom decorrelation: mean ≈ 0, variance shrinks with K (§11.3)
-- spatial heads prefer near-same > far-same > cross-chrom-near-coord (§11.4)
-- permutation equivariance pre-pool, invariance post-pool (§11.5)
-- novel `(species, assembly, chrom)` works (§11.6)
-- encoder has no learnable parameters; gradients reach `τ`, `β`, `w`, `W_V` only
-
-### Multi-scale kernel sweep
-
-`scripts/plot_kernel_scales.py` initializes a 6-head `SpatialAttention` at
-target scales `{100 bp, 1 kb, 10 kb, 100 kb, 1 Mb, 10 Mb}` and sweeps the
-same-chromosome kernel `K_h(Δ)` across Δ ∈ [1 bp, 100 Mb]. The resulting
-`docs/figures/kernel_sweep.png` shows clean log-Gaussian decay around each
-head's target scale; half-decay distances (printed by the script) are:
-
-```
-head 0: target L=100 bp  half-Δ= 23 bp
-head 1: target L=  1 kb  half-Δ=224 bp
-head 2: target L= 10 kb  half-Δ=  2 kb
-head 3: target L=100 kb  half-Δ= 23 kb
-head 4: target L=  1 Mb  half-Δ=227 kb
-head 5: target L= 10 Mb  half-Δ=  2 Mb
-```
-
-### Tree
-
-```
 src/bloom_arch/
 ├── posenc/
-│   ├── chrom_codes.py    # ChromCodeBook (BLAKE2b → r_g, u_g; cached)
-│   ├── fourier.py        # FourierCoordEncoder (log-spaced 1/√K bank)
+│   ├── chrom_codes.py    # ChromCodeBook (deterministic BLAKE2b -> r_g, u_g)
+│   ├── fourier.py        # FourierCoordEncoder (multiscale sin/cos bank)
 │   └── encoder.py        # ChromLocalPosEncoder (composes the two)
 └── attention/
-    ├── spatial.py        # SpatialAttention (per-head log-w windows, β_h, τ_h)
-    ├── content.py        # ContentAttention (standard MHA)
-    └── typed_block.py    # TypedMultiHeadAttention (content + spatial in parallel)
+    ├── content.py        # ContentAttention (standard MHA over s)
+    ├── spatial.py        # SpatialAttention (kernel from positions)
+    ├── spatial_sdpa.py   # SpatialAttentionSDPA (SDPA / Flash variant)
+    └── typed_block.py    # TypedMultiHeadAttention (content + spatial)
+tests/                    # 32 tests — spec section 11 + section 12 + SDPA
+scripts/
+├── plot_kernel_scales.py
+└── check_sdpa_backends.py
+docs/
+├── spec.md
+├── implementation.md     # math, parameter ranges, tuning notes
+└── figures/kernel_sweep.png
 ```
 
-## SDPA / Flash Attention path
+## Install & test
 
-`SpatialAttentionSDPA` is a sibling of `SpatialAttention` that maps the
-section-12 logit onto `Q·K^T` and runs the softmax-matmul step through
-`torch.nn.functional.scaled_dot_product_attention`. State dict round-trips
-with the math version, so you can train one and infer with the other.
+```bash
+# Inside the bloom-arch conda env
+pip install -e ".[dev]"
+pytest -v tests
+```
 
-**Backend dispatch on NVIDIA L4 (sm_89, PyTorch 2.6+cu124):**
-
-| backend | bf16 | fp16 | fp32 |
-| --- | --- | --- | --- |
-| FLASH_ATTENTION | refused | refused | refused (by design) |
-| EFFICIENT_ATTENTION (xFormers-lineage) | **dispatches** | **dispatches** | dispatches |
-| CUDNN_ATTENTION | refused | refused | refused |
-| MATH | works | works | works |
-
-Reproduce with `python scripts/check_sdpa_backends.py`.
-
-PyTorch's flash kernel rejects our shapes for two reasons with spec defaults
-(`d_u=32`, `K=112`, `d_v=64`):
-
-1. Flash requires `head_dim(Q) == head_dim(K) == head_dim(V)`. Ours are
-   `(256, 256, 64)`.
-2. Some flash paths cap head dim at 128. Our QK head dim is 256.
-
-In practice EFFICIENT_ATTENTION is the path that dispatches and is the
-"flash-class" kernel for asymmetric Q/V head dims — it provides the same
-IO-aware tiling and is what our bf16 tests transparently exercise.
-
-To force a true flash dispatch you would need to either (a) pad V to match
-QK head dim, or (b) shrink K so QK head dim ≤ 128. Neither is needed today;
-`SpatialAttentionSDPA` is bf16/fp16-ready as-is.
+32 tests cover spec section 11 (determinism, sign cancellation,
+cross-chrom decorrelation, head ordering, permutation equivariance),
+section 12 (wavelength tying, per-head scale ordering), the SDPA path
+(fp32 parity, bf16 CUDA smoke, flash dispatch under padding), and
+cross-device construction.
