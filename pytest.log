@@ -1,0 +1,30 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.0.3, pluggy-1.6.0 -- /home/ubuntu/miniconda3/envs/bloom-arch/bin/python3.12
+cachedir: .pytest_cache
+rootdir: /home/ubuntu/code/bloom-arch
+configfile: pyproject.toml
+collecting ... collected 21 items
+
+tests/test_attention.py::test_spatial_attention_prefers_nearby_same_chrom PASSED [  4%]
+tests/test_attention.py::test_permutation_equivariance_pre_pool_and_invariance_after_pool PASSED [  9%]
+tests/test_attention.py::test_spatial_attention_learnables_receive_gradients PASSED [ 14%]
+tests/test_attention.py::test_encoder_outputs_have_no_grad_history PASSED [ 19%]
+tests/test_attention.py::test_head_scale_ordering PASSED                 [ 23%]
+tests/test_attention.py::test_wavelength_weights_tied_across_sin_cos PASSED [ 28%]
+tests/test_attention.py::test_content_attention_shape PASSED             [ 33%]
+tests/test_posenc.py::test_chrom_codes_deterministic_within_book PASSED  [ 38%]
+tests/test_posenc.py::test_chrom_codes_deterministic_across_books PASSED [ 42%]
+tests/test_posenc.py::test_chrom_codes_salt_changes_output PASSED        [ 47%]
+tests/test_posenc.py::test_chrom_codes_r_is_pm_one_and_u_is_unit_norm PASSED [ 52%]
+tests/test_posenc.py::test_fourier_dot_depends_only_on_distance PASSED   [ 57%]
+tests/test_posenc.py::test_fourier_dot_depends_only_on_distance_float32_short_range PASSED [ 61%]
+tests/test_posenc.py::test_fourier_dot_is_one_at_zero_distance PASSED    [ 66%]
+tests/test_posenc.py::test_same_chrom_sign_cancellation PASSED           [ 71%]
+tests/test_posenc.py::test_cross_chrom_decorrelation_mean_near_zero PASSED [ 76%]
+tests/test_posenc.py::test_cross_chrom_decorrelation_variance_decreases_with_K PASSED [ 80%]
+tests/test_posenc.py::test_new_chromosome_works_without_state PASSED     [ 85%]
+tests/test_posenc.py::test_encoder_has_no_parameters PASSED              [ 90%]
+tests/test_posenc.py::test_codebook_has_no_parameters PASSED             [ 95%]
+tests/test_posenc.py::test_encoder_moves_to_cuda PASSED                  [100%]
+
+============================== 21 passed in 1.48s ==============================

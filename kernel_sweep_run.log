@@ -1,0 +1,9 @@
+wrote docs/figures/kernel_sweep.png
+
+Half-decay distances (Δ where K_h drops to half its peak):
+  head 0: target L= 100 bp  peak=0.214  half-Δ=  23 bp
+  head 1: target L=   1 kb  peak=0.215  half-Δ= 224 bp
+  head 2: target L=  10 kb  peak=0.215  half-Δ=   2 kb
+  head 3: target L= 100 kb  peak=0.215  half-Δ=  23 kb
+  head 4: target L=   1 Mb  peak=0.215  half-Δ= 227 kb
+  head 5: target L=  10 Mb  peak=0.215  half-Δ=   2 Mb
