@@ -93,3 +93,36 @@ src/bloom_arch/
     ├── content.py        # ContentAttention (standard MHA)
     └── typed_block.py    # TypedMultiHeadAttention (content + spatial in parallel)
 ```
+
+## SDPA / Flash Attention path
+
+`SpatialAttentionSDPA` is a sibling of `SpatialAttention` that maps the
+section-12 logit onto `Q·K^T` and runs the softmax-matmul step through
+`torch.nn.functional.scaled_dot_product_attention`. State dict round-trips
+with the math version, so you can train one and infer with the other.
+
+**Backend dispatch on NVIDIA L4 (sm_89, PyTorch 2.6+cu124):**
+
+| backend | bf16 | fp16 | fp32 |
+| --- | --- | --- | --- |
+| FLASH_ATTENTION | refused | refused | refused (by design) |
+| EFFICIENT_ATTENTION (xFormers-lineage) | **dispatches** | **dispatches** | dispatches |
+| CUDNN_ATTENTION | refused | refused | refused |
+| MATH | works | works | works |
+
+Reproduce with `python scripts/check_sdpa_backends.py`.
+
+PyTorch's flash kernel rejects our shapes for two reasons with spec defaults
+(`d_u=32`, `K=112`, `d_v=64`):
+
+1. Flash requires `head_dim(Q) == head_dim(K) == head_dim(V)`. Ours are
+   `(256, 256, 64)`.
+2. Some flash paths cap head dim at 128. Our QK head dim is 256.
+
+In practice EFFICIENT_ATTENTION is the path that dispatches and is the
+"flash-class" kernel for asymmetric Q/V head dims — it provides the same
+IO-aware tiling and is what our bf16 tests transparently exercise.
+
+To force a true flash dispatch you would need to either (a) pad V to match
+QK head dim, or (b) shrink K so QK head dim ≤ 128. Neither is needed today;
+`SpatialAttentionSDPA` is bf16/fp16-ready as-is.
