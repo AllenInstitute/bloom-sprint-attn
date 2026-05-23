@@ -70,7 +70,7 @@ class FourierCoordEncoder(nn.Module):
         else:
             exponents = torch.arange(K, dtype=torch.float32) / (K - 1)
             ratio = lambda_max / lambda_min
-            lambdas = lambda_min * (ratio ** exponents)
+            lambdas = lambda_min * (ratio**exponents)
 
         # Angular frequencies ω_k = 2π / λ_k. Stored as buffer so .to(device) works.
         omegas = 2.0 * math.pi / lambdas

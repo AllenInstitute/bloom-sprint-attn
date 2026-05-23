@@ -90,12 +90,12 @@ class TypedMultiHeadAttention(nn.Module):
         """
         outs = []
         if self.content is not None:
-            outs.append(self.content(s))                # [B, N, H_c, d_v]
+            outs.append(self.content(s))  # [B, N, H_c, d_v]
         if self.spatial is not None:
             if u is None or r_phi is None:
                 raise ValueError("spatial heads require u and r_phi")
-            outs.append(self.spatial(u, r_phi, s))       # [B, N, H_s, d_v]
-        cat = torch.cat(outs, dim=-2)                    # [B, N, H_total, d_v]
+            outs.append(self.spatial(u, r_phi, s))  # [B, N, H_s, d_v]
+        cat = torch.cat(outs, dim=-2)  # [B, N, H_total, d_v]
         B, N, H_total, d_v = cat.shape
         flat = cat.reshape(B, N, H_total * d_v)
         return self.W_O(flat)

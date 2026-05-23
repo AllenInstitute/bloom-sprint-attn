@@ -54,7 +54,7 @@ class ContentAttention(nn.Module):
         q = self.W_Q(s).view(B, N, self.H, self.d_v).transpose(1, 2)  # [B, H, N, d_v]
         k = self.W_K(s).view(B, N, self.H, self.d_v).transpose(1, 2)
         v = self.W_V(s).view(B, N, self.H, self.d_v).transpose(1, 2)
-        logits = torch.matmul(q, k.transpose(-1, -2)) * self._scale    # [B, H, N, N]
+        logits = torch.matmul(q, k.transpose(-1, -2)) * self._scale  # [B, H, N, N]
         attn = torch.softmax(logits, dim=-1)
-        out = torch.matmul(attn, v)                                    # [B, H, N, d_v]
-        return out.transpose(1, 2).contiguous()                         # [B, N, H, d_v]
+        out = torch.matmul(attn, v)  # [B, H, N, d_v]
+        return out.transpose(1, 2).contiguous()  # [B, N, H, d_v]

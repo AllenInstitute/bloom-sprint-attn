@@ -9,7 +9,6 @@ import torch
 
 from bloom_arch.posenc import ChromCodeBook, ChromLocalPosEncoder, FourierCoordEncoder
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -130,8 +129,8 @@ def test_same_chrom_sign_cancellation():
     chrom_keys = [[(SPECIES, ASSEMBLY, "chr3"), (SPECIES, ASSEMBLY, "chr3")]]
 
     out = encoder(coords, chrom_keys)
-    r_phi = out["r_phi"][0]                    # [2, 2K]
-    phi = fcoder(coords)[0]                    # [2, 2K]
+    r_phi = out["r_phi"][0]  # [2, 2K]
+    phi = fcoder(coords)[0]  # [2, 2K]
 
     # (r ⊙ φ_i) · (r ⊙ φ_j) == φ_i · φ_j, because r is ±1 and shared across i, j on same chrom.
     lhs = (r_phi[0] * r_phi[1]).sum().item()
@@ -155,8 +154,8 @@ def test_cross_chrom_decorrelation_mean_near_zero():
     ]
 
     out = encoder(coords, chrom_keys)
-    r_phi = out["r_phi"]                         # [N_PAIRS, 2, 2K]
-    dots = (r_phi[:, 0] * r_phi[:, 1]).sum(-1)   # [N_PAIRS]
+    r_phi = out["r_phi"]  # [N_PAIRS, 2, 2K]
+    dots = (r_phi[:, 0] * r_phi[:, 1]).sum(-1)  # [N_PAIRS]
     mean = dots.mean().item()
     std = dots.std().item()
 
@@ -174,9 +173,7 @@ def test_cross_chrom_decorrelation_variance_decreases_with_K():
         enc = ChromLocalPosEncoder(d_u=32, K=K, lambda_min=10.0, lambda_max=1.0e8)
         N = 400
         coords = torch.rand(N, 2) * 1.0e8
-        chrom_keys = [
-            [(SPECIES, ASSEMBLY, "chrA"), (SPECIES, ASSEMBLY, "chrB")] for _ in range(N)
-        ]
+        chrom_keys = [[(SPECIES, ASSEMBLY, "chrA"), (SPECIES, ASSEMBLY, "chrB")] for _ in range(N)]
         out = enc(coords, chrom_keys)
         r_phi = out["r_phi"]
         dots = (r_phi[:, 0] * r_phi[:, 1]).sum(-1)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-import pytest
 import torch
 
 from bloom_arch.attention import ContentAttention, SpatialAttention, TypedMultiHeadAttention
@@ -30,7 +29,7 @@ def _make_stack(
         H_spatial=H_spatial,
         K=K,
         lambdas=encoder.fourier.lambdas,
-        target_scales=target_scales,  # None → SpatialAttention auto-spaces over [10*λ_min, λ_max/10]
+        target_scales=target_scales,
     )
     return encoder, block
 
@@ -74,14 +73,11 @@ def test_spatial_attention_prefers_nearby_same_chrom():
         + [(SPECIES, ASSEMBLY, "chr1")] * len(far)
         + [(SPECIES, ASSEMBLY, "chr2")] * len(cross)
     ]
-    # Use a flat sequence embedding so the values themselves carry no signal.
-    s = torch.zeros(1, coords.shape[1], 8)
-
     pos = encoder(coords, keys)
     # Reach into the attention layer to inspect the softmax weights directly.
     logits = _spatial_logits(spatial, pos["u"], pos["r_phi"])  # [1, 1, N, N]
-    attn = torch.softmax(logits, dim=-1)[0, 0]                  # [N, N]
-    row_query = attn[0]                                          # attention from query
+    attn = torch.softmax(logits, dim=-1)[0, 0]  # [N, N]
+    row_query = attn[0]  # attention from query
 
     mass_near = row_query[1:5].sum().item()
     mass_far = row_query[5:9].sum().item()
@@ -98,16 +94,14 @@ def test_spatial_attention_prefers_nearby_same_chrom():
         f"nearest same-chrom mass {nearest_same:.3f} not > biggest cross-chrom {biggest_cross:.3f}"
     )
     # Plausibility: total mass should be 1 (it's a softmax row).
-    assert math.isclose(
-        mass_self + mass_near + mass_far + mass_cross, 1.0, abs_tol=1e-4
-    )
+    assert math.isclose(mass_self + mass_near + mass_far + mass_cross, 1.0, abs_tol=1e-4)
 
 
 def _spatial_logits(layer: SpatialAttention, u: torch.Tensor, r_phi: torch.Tensor) -> torch.Tensor:
     """Reproduce the logit computation inside SpatialAttention.forward for inspection."""
     H = layer.H
     u_dot = torch.matmul(u, u.transpose(-1, -2))
-    beta_sq = (layer.beta ** 2).view(1, H, 1, 1)
+    beta_sq = (layer.beta**2).view(1, H, 1, 1)
     u_logit = beta_sq * u_dot.unsqueeze(1)
     w_tiled = layer.w_tiled()
     weighted_r = r_phi.unsqueeze(2) * w_tiled.view(1, 1, H, -1)
@@ -126,7 +120,10 @@ def test_permutation_equivariance_pre_pool_and_invariance_after_pool():
     coords = torch.rand(B, N) * 1.0e8
     # Mix two chromosomes.
     keys = [
-        [(SPECIES, ASSEMBLY, "chr1") if n % 2 == 0 else (SPECIES, ASSEMBLY, "chr2") for n in range(N)]
+        [
+            (SPECIES, ASSEMBLY, "chr1") if n % 2 == 0 else (SPECIES, ASSEMBLY, "chr2")
+            for n in range(N)
+        ]
     ]
     s = torch.randn(B, N, 64)
 
@@ -165,7 +162,7 @@ def test_spatial_attention_learnables_receive_gradients():
 
     pos = encoder(coords, keys)
     out = block(s, u=pos["u"], r_phi=pos["r_phi"])
-    loss = (out ** 2).mean()
+    loss = (out**2).mean()
     loss.backward()
 
     spatial = block.spatial
@@ -200,8 +197,13 @@ def test_head_scale_ordering():
     encoder = ChromLocalPosEncoder(d_u=32, K=K, lambda_min=10.0, lambda_max=1.0e8)
     scales = [1.0e2, 1.0e3, 1.0e4, 1.0e5, 1.0e6, 1.0e7]
     spatial = SpatialAttention(
-        d_s=8, d_v=8, H=len(scales), K=K, lambdas=encoder.fourier.lambdas,
-        target_scales=scales, beta_init=0.0,
+        d_s=8,
+        d_v=8,
+        H=len(scales),
+        K=K,
+        lambdas=encoder.fourier.lambdas,
+        target_scales=scales,
+        beta_init=0.0,
     )
     # Evaluate K_h(Δ) at a log-spaced grid up to 100 Mb.
     deltas = torch.logspace(0, 8, steps=400)  # 1 bp … 100 Mb
@@ -224,8 +226,8 @@ def test_head_scale_ordering():
     # Half-decay distance should be (weakly) monotone-increasing in head index.
     for i in range(1, len(half_distances)):
         assert half_distances[i] >= half_distances[i - 1] * 0.5, (
-            f"head {i} half-dist {half_distances[i]:.3g} < half of head {i-1} "
-            f"({half_distances[i-1]:.3g}); scales not ordered."
+            f"head {i} half-dist {half_distances[i]:.3g} < half of head {i - 1} "
+            f"({half_distances[i - 1]:.3g}); scales not ordered."
         )
     # And the last head should reach further than the first.
     assert half_distances[-1] > half_distances[0] * 10.0, (
@@ -240,7 +242,11 @@ def test_wavelength_weights_tied_across_sin_cos():
     K = 32
     encoder = ChromLocalPosEncoder(d_u=8, K=K, lambda_min=10.0, lambda_max=1.0e8)
     spatial = SpatialAttention(
-        d_s=4, d_v=4, H=3, K=K, lambdas=encoder.fourier.lambdas,
+        d_s=4,
+        d_v=4,
+        H=3,
+        K=K,
+        lambdas=encoder.fourier.lambdas,
         target_scales=[1e3, 1e4, 1e5],
     )
     w_tiled = spatial.w_tiled()  # [H, 2K]

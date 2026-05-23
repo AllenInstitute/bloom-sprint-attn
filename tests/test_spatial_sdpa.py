@@ -16,7 +16,11 @@ def _make_layer(d_s: int = 32, d_v: int = 8, H: int = 4, K: int = 64, seed: int 
     torch.manual_seed(seed)
     encoder = ChromLocalPosEncoder(d_u=32, K=K, lambda_min=10.0, lambda_max=1.0e8)
     layer = SpatialAttentionSDPA(
-        d_s=d_s, d_v=d_v, H=H, K=K, lambdas=encoder.fourier.lambdas,
+        d_s=d_s,
+        d_v=d_v,
+        H=H,
+        K=K,
+        lambdas=encoder.fourier.lambdas,
         target_scales=[1e2, 1e3, 1e4, 1e5][:H],
     )
     return encoder, layer
@@ -45,9 +49,7 @@ def test_sdpa_matches_math_version_fp32_mixed_chroms():
     encoder, layer = _make_layer(seed=7)
     B, N, d_s = 1, 8, 32
     coords = torch.rand(B, N) * 1.0e7
-    keys = [
-        [(SPECIES, ASSEMBLY, "chr1" if n % 2 == 0 else "chr2") for n in range(N)]
-    ]
+    keys = [[(SPECIES, ASSEMBLY, "chr1" if n % 2 == 0 else "chr2") for n in range(N)]]
     s = torch.randn(B, N, d_s)
     pos = encoder(coords, keys)
     out_sdpa = layer(pos["u"], pos["r_phi"], s)
@@ -67,7 +69,7 @@ def test_sdpa_autograd_reaches_all_parameters():
     s = torch.randn(B, N, 32, requires_grad=True)
     pos = encoder(coords, keys)
     out = layer(pos["u"], pos["r_phi"], s)
-    loss = (out ** 2).mean()
+    loss = (out**2).mean()
     loss.backward()
     assert layer.log_w.grad is not None and layer.log_w.grad.abs().sum() > 0
     assert layer.beta.grad is not None and layer.beta.grad.abs().sum() > 0
@@ -106,7 +108,10 @@ def test_sdpa_bf16_close_to_fp32_cuda():
     """
     encoder, layer_fp32 = _make_layer(seed=2)
     layer_bf16 = SpatialAttentionSDPA(
-        d_s=layer_fp32.d_s, d_v=layer_fp32.d_v, H=layer_fp32.H, K=layer_fp32.K,
+        d_s=layer_fp32.d_s,
+        d_v=layer_fp32.d_v,
+        H=layer_fp32.H,
+        K=layer_fp32.K,
         lambdas=layer_fp32.lambdas,
     )
     layer_bf16.load_state_dict(layer_fp32.state_dict())

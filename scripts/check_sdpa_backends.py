@@ -49,11 +49,19 @@ def _build_layer(
     pad_v_for_flash: bool,
 ) -> tuple[ChromLocalPosEncoder, SpatialAttentionSDPA]:
     encoder = ChromLocalPosEncoder(d_u=32, K=K, lambda_min=10.0, lambda_max=1.0e8).to(device)
-    layer = SpatialAttentionSDPA(
-        d_s=D_S, d_v=D_V, H=H, K=K, lambdas=encoder.fourier.lambdas,
-        target_scales=TARGET_SCALES,
-        pad_v_for_flash=pad_v_for_flash,
-    ).to(device).to(dtype)
+    layer = (
+        SpatialAttentionSDPA(
+            d_s=D_S,
+            d_v=D_V,
+            H=H,
+            K=K,
+            lambdas=encoder.fourier.lambdas,
+            target_scales=TARGET_SCALES,
+            pad_v_for_flash=pad_v_for_flash,
+        )
+        .to(device)
+        .to(dtype)
+    )
     return encoder, layer
 
 
@@ -110,9 +118,7 @@ def main() -> int:
 
     if torch.cuda.is_available():
         for pad in (False, True):
-            header(
-                f"bfloat16 on CUDA (flash-preferred dtype), pad_v_for_flash={pad}"
-            )
+            header(f"bfloat16 on CUDA (flash-preferred dtype), pad_v_for_flash={pad}")
             probe(torch.bfloat16, "cuda", pad_v_for_flash=pad)
 
             header(f"float16 on CUDA, pad_v_for_flash={pad}")

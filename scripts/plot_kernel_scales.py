@@ -25,7 +25,6 @@ import math
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 
 from bloom_arch.attention import SpatialAttention
@@ -43,21 +42,22 @@ def kernel_curves(
     """Return (per-head K_h, baseline cos kernel, β² floor) at initialization."""
     fcoder = FourierCoordEncoder(K=K, lambda_min=lambda_min, lambda_max=lambda_max)
     spatial = SpatialAttention(
-        d_s=8, d_v=8, H=len(target_scales), K=K,
+        d_s=8,
+        d_v=8,
+        H=len(target_scales),
+        K=K,
         lambdas=fcoder.lambdas,
         target_scales=target_scales,
         rho=rho,
-        beta_init=0.3,           # small β so the floor is visible but doesn't dominate
+        beta_init=0.3,  # small β so the floor is visible but doesn't dominate
         tau_init=1.0,
     )
     with torch.no_grad():
-        K_h = spatial.kernel_same_chrom(deltas)        # [H, D]
-        floor = (spatial.beta ** 2).clone()             # [H]
+        K_h = spatial.kernel_same_chrom(deltas)  # [H, D]
+        floor = (spatial.beta**2).clone()  # [H]
         # Unweighted baseline: (1/K) Σ_k cos(2π Δ / λ_k)
         omegas = 2.0 * math.pi / fcoder.lambdas
-        baseline = (
-            torch.cos(deltas.unsqueeze(-1) * omegas).sum(-1) / K
-        )                                               # [D]
+        baseline = torch.cos(deltas.unsqueeze(-1) * omegas).sum(-1) / K  # [D]
     return K_h, baseline, floor
 
 
@@ -73,22 +73,32 @@ def format_bp(bp: float) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--out", type=Path, default=Path("docs/figures/kernel_sweep.png"),
+        "--out",
+        type=Path,
+        default=Path("docs/figures/kernel_sweep.png"),
         help="Output PNG path (relative to repo root).",
     )
     parser.add_argument("--K", type=int, default=112, help="Number of Fourier wavelengths.")
     parser.add_argument("--lambda-min", type=float, default=10.0, help="Min wavelength (bp).")
     parser.add_argument("--lambda-max", type=float, default=1.0e8, help="Max wavelength (bp).")
-    parser.add_argument("--rho", type=float, default=math.log(10.0) / 2.0,
-                        help="Broadness of log-Gaussian window (in nat log units).")
+    parser.add_argument(
+        "--rho",
+        type=float,
+        default=math.log(10.0) / 2.0,
+        help="Broadness of log-Gaussian window (in nat log units).",
+    )
     args = parser.parse_args()
 
     target_scales = [1.0e2, 1.0e3, 1.0e4, 1.0e5, 1.0e6, 1.0e7]  # 100 bp .. 10 Mb
     deltas = torch.logspace(0, 8, steps=600)  # 1 bp .. 100 Mb
 
     K_h, baseline, floor = kernel_curves(
-        K=args.K, lambda_min=args.lambda_min, lambda_max=args.lambda_max,
-        target_scales=target_scales, rho=args.rho, deltas=deltas,
+        K=args.K,
+        lambda_min=args.lambda_min,
+        lambda_max=args.lambda_max,
+        target_scales=target_scales,
+        rho=args.rho,
+        deltas=deltas,
     )
 
     fig, ax = plt.subplots(figsize=(9.5, 5.5), constrained_layout=True)
@@ -108,8 +118,12 @@ def main() -> None:
         ax.axhline(floor[h].item(), color=color, alpha=0.15, linewidth=0.8, linestyle=":")
 
     ax.plot(
-        deltas.numpy(), baseline.numpy(),
-        color="black", linestyle="--", linewidth=1.4, alpha=0.7,
+        deltas.numpy(),
+        baseline.numpy(),
+        color="black",
+        linestyle="--",
+        linewidth=1.4,
+        alpha=0.7,
         label=r"unweighted $\phi(x_i)\cdot\phi(x_j)$",
     )
 
@@ -118,7 +132,8 @@ def main() -> None:
     ax.set_ylabel(r"same-chromosome kernel $K_h(\Delta)$")
     ax.set_title(
         "Per-head spatial kernel at initialization\n"
-        rf"K={args.K} wavelengths, $\lambda\in[{format_bp(args.lambda_min)},\,{format_bp(args.lambda_max)}]$,"
+        rf"K={args.K} wavelengths, "
+        rf"$\lambda\in[{format_bp(args.lambda_min)},\,{format_bp(args.lambda_max)}]$,"
         rf" log-Gaussian windows ($\rho$={args.rho:.2f})"
     )
     ax.grid(True, which="both", alpha=0.3)

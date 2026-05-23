@@ -50,7 +50,7 @@ def _default_log_gaussian_init(
         torch.tensor(list(target_scales), dtype=lambdas.dtype, device=lambdas.device)
     )  # [H]
     diff = log_lambdas.unsqueeze(0) - log_L.unsqueeze(1)  # [H, K]
-    return -(diff ** 2) / (2.0 * rho ** 2)
+    return -(diff**2) / (2.0 * rho**2)
 
 
 class SpatialAttention(nn.Module):
@@ -116,9 +116,7 @@ class SpatialAttention(nn.Module):
             target_scales = scales
 
         if len(target_scales) != H:
-            raise ValueError(
-                f"target_scales must have length H={H}, got {len(target_scales)}"
-            )
+            raise ValueError(f"target_scales must have length H={H}, got {len(target_scales)}")
 
         self.register_buffer("lambdas", lambdas.detach().clone())
         self.target_scales = tuple(float(s) for s in target_scales)
@@ -126,8 +124,8 @@ class SpatialAttention(nn.Module):
 
         # Per-head learnable parameters.
         log_w_init = _default_log_gaussian_init(K, self.lambdas, target_scales, rho)  # [H, K]
-        self.log_w = nn.Parameter(log_w_init)                           # [H, K]
-        self.beta = nn.Parameter(torch.full((H,), float(beta_init)))    # [H]
+        self.log_w = nn.Parameter(log_w_init)  # [H, K]
+        self.beta = nn.Parameter(torch.full((H,), float(beta_init)))  # [H]
         self.log_tau = nn.Parameter(torch.full((H,), math.log(tau_init)))  # [H]
 
         # Sequence → values. Single fused projection of width H*d_v.
@@ -166,16 +164,16 @@ class SpatialAttention(nn.Module):
             Per-head same-chromosome kernel values.
         """
         omegas = (2.0 * math.pi / self.lambdas).to(delta.device, delta.dtype)  # [K]
-        cosines = torch.cos(delta.unsqueeze(-1) * omegas)                       # [D, K]
-        w = self.w()                                                            # [H, K]
-        phi_term = (cosines.unsqueeze(0) * (w ** 2).unsqueeze(1)).sum(-1) / self.K  # [H, D]
+        cosines = torch.cos(delta.unsqueeze(-1) * omegas)  # [D, K]
+        w = self.w()  # [H, K]
+        phi_term = (cosines.unsqueeze(0) * (w**2).unsqueeze(1)).sum(-1) / self.K  # [H, D]
         return self.beta.unsqueeze(-1) ** 2 + phi_term
 
     def forward(
         self,
-        u: torch.Tensor,        # [B, N, d_u]
-        r_phi: torch.Tensor,    # [B, N, 2K]
-        s: torch.Tensor,        # [B, N, d_s]
+        u: torch.Tensor,  # [B, N, d_u]
+        r_phi: torch.Tensor,  # [B, N, 2K]
+        s: torch.Tensor,  # [B, N, d_s]
     ) -> torch.Tensor:
         """Run multi-head spatial attention.
 
@@ -197,32 +195,30 @@ class SpatialAttention(nn.Module):
         if u.shape[:2] != (B, N) or s.shape[:2] != (B, N):
             raise ValueError("u, r_phi, s must agree on [B, N]")
         if r_phi.shape[-1] != 2 * self.K:
-            raise ValueError(
-                f"r_phi last dim must be 2*K = {2 * self.K}, got {r_phi.shape[-1]}"
-            )
+            raise ValueError(f"r_phi last dim must be 2*K = {2 * self.K}, got {r_phi.shape[-1]}")
 
         # u term: β_h² · (u_i · u_j), shape [B, N, N] then broadcast to heads.
-        u_dot = torch.matmul(u, u.transpose(-1, -2))           # [B, N, N]
-        beta_sq = (self.beta ** 2).view(1, self.H, 1, 1)       # [1, H, 1, 1]
-        u_logit = beta_sq * u_dot.unsqueeze(1)                 # [B, H, N, N]
+        u_dot = torch.matmul(u, u.transpose(-1, -2))  # [B, N, N]
+        beta_sq = (self.beta**2).view(1, self.H, 1, 1)  # [1, H, 1, 1]
+        u_logit = beta_sq * u_dot.unsqueeze(1)  # [B, H, N, N]
 
         # r_phi term: weight by w_tiled per head, then inner product.
-        w_tiled = self.w_tiled()                               # [H, 2K]
+        w_tiled = self.w_tiled()  # [H, 2K]
         # weighted_r[b, n, h, d] = r_phi[b, n, d] * w_tiled[h, d]
         # logit_phi[b, h, i, j] = Σ_d weighted_r[b, i, h, d] * weighted_r[b, j, h, d]
         #                       = Σ_d w_tiled[h, d]² · r_phi[b, i, d] · r_phi[b, j, d]
-        weighted_r = r_phi.unsqueeze(2) * w_tiled.view(1, 1, self.H, -1)   # [B, N, H, 2K]
+        weighted_r = r_phi.unsqueeze(2) * w_tiled.view(1, 1, self.H, -1)  # [B, N, H, 2K]
         # einsum: contract last dim, keep batch+head, produce [B, H, N, N]
         phi_logit = torch.einsum("bihd,bjhd->bhij", weighted_r, weighted_r)
 
         # Combine and scale by τ_h.
-        tau = self.tau.view(1, self.H, 1, 1)                   # [1, H, 1, 1]
-        logits = tau * (u_logit + phi_logit)                   # [B, H, N, N]
+        tau = self.tau.view(1, self.H, 1, 1)  # [1, H, 1, 1]
+        logits = tau * (u_logit + phi_logit)  # [B, H, N, N]
 
         # Attention weights — softmax over j.
-        attn = torch.softmax(logits, dim=-1)                   # [B, H, N, N]
+        attn = torch.softmax(logits, dim=-1)  # [B, H, N, N]
 
         # Values: project sequence and reshape to [B, H, N, d_v].
         v = self.W_V(s).view(B, N, self.H, self.d_v).transpose(1, 2)  # [B, H, N, d_v]
-        out = torch.matmul(attn, v)                             # [B, H, N, d_v]
-        return out.transpose(1, 2).contiguous()                 # [B, N, H, d_v]
+        out = torch.matmul(attn, v)  # [B, H, N, d_v]
+        return out.transpose(1, 2).contiguous()  # [B, N, H, d_v]

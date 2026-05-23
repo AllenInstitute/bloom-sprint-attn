@@ -23,7 +23,7 @@ M unique chromosomes hashes M times, not N.
 from __future__ import annotations
 
 import hashlib
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import torch

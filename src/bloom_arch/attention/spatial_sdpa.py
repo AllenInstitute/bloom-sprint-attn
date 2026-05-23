@@ -91,23 +91,21 @@ class SpatialAttentionSDPA(SpatialAttention):
 
     def forward(  # type: ignore[override]
         self,
-        u: torch.Tensor,        # [B, N, d_u]
-        r_phi: torch.Tensor,    # [B, N, 2K]
-        s: torch.Tensor,        # [B, N, d_s]
+        u: torch.Tensor,  # [B, N, d_u]
+        r_phi: torch.Tensor,  # [B, N, 2K]
+        s: torch.Tensor,  # [B, N, d_s]
     ) -> torch.Tensor:
         B, N, _ = r_phi.shape
         if u.shape[:2] != (B, N) or s.shape[:2] != (B, N):
             raise ValueError("u, r_phi, s must agree on [B, N]")
         if r_phi.shape[-1] != 2 * self.K:
-            raise ValueError(
-                f"r_phi last dim must be 2*K = {2 * self.K}, got {r_phi.shape[-1]}"
-            )
+            raise ValueError(f"r_phi last dim must be 2*K = {2 * self.K}, got {r_phi.shape[-1]}")
 
         H, d_v = self.H, self.d_v
-        w_tiled = self.w_tiled()                                          # [H, 2K]
+        w_tiled = self.w_tiled()  # [H, 2K]
         # beta_h and sqrt(tau_h) broadcasted over heads.
-        beta = self.beta.view(1, H, 1, 1)                                  # [1, H, 1, 1]
-        sqrt_tau = self.tau.sqrt().view(1, H, 1, 1)                        # [1, H, 1, 1]
+        beta = self.beta.view(1, H, 1, 1)  # [1, H, 1, 1]
+        sqrt_tau = self.tau.sqrt().view(1, H, 1, 1)  # [1, H, 1, 1]
 
         # u-part for QK: beta_h * u, broadcast across heads -> [B, H, N, d_u].
         u_part = u.unsqueeze(1) * beta
@@ -115,25 +113,25 @@ class SpatialAttentionSDPA(SpatialAttention):
         r_part = r_phi.unsqueeze(1) * w_tiled.view(1, H, 1, -1)
 
         # Concatenate and absorb sqrt(tau_h) so SDPA's scale=1.0 gives tau_h * Q.K^T.
-        qk = torch.cat([u_part, r_part], dim=-1) * sqrt_tau                # [B, H, N, head_dim_qk]
+        qk = torch.cat([u_part, r_part], dim=-1) * sqrt_tau  # [B, H, N, head_dim_qk]
         head_dim_qk = qk.shape[-1]
 
         # V: project sequence into per-head values.
-        v = self.W_V(s).view(B, N, H, d_v).transpose(1, 2).contiguous()    # [B, H, N, d_v]
+        v = self.W_V(s).view(B, N, H, d_v).transpose(1, 2).contiguous()  # [B, H, N, d_v]
 
         if self.pad_v_for_flash and head_dim_qk > d_v:
             # Pad V with zeros along the head dim to match QK. Zeros are
             # inert under softmax-weighted summation, so the padded output
             # columns can be sliced off after SDPA without changing the
             # result.
-            v_padded = F.pad(v, (0, head_dim_qk - d_v))                    # [B, H, N, head_dim_qk]
+            v_padded = F.pad(v, (0, head_dim_qk - d_v))  # [B, H, N, head_dim_qk]
             out_padded = F.scaled_dot_product_attention(qk, qk, v_padded, scale=1.0)
-            out = out_padded[..., :d_v].contiguous()                       # [B, H, N, d_v]
+            out = out_padded[..., :d_v].contiguous()  # [B, H, N, d_v]
         else:
             # Positional self-attention: Q == K. SDPA expects the same
             # dtype for Q, K, V; caller controls precision via .to(dtype).
-            out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)     # [B, H, N, d_v]
-        return out.transpose(1, 2).contiguous()                             # [B, N, H, d_v]
+            out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)  # [B, H, N, d_v]
+        return out.transpose(1, 2).contiguous()  # [B, N, H, d_v]
 
     def forward_explicit(
         self,

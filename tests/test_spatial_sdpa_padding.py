@@ -17,7 +17,11 @@ def _make(layer_kwargs: dict | None = None, seed: int = 0):
     torch.manual_seed(seed)
     encoder = ChromLocalPosEncoder(d_u=32, K=64, lambda_min=10.0, lambda_max=1.0e8)
     layer = SpatialAttentionSDPA(
-        d_s=32, d_v=8, H=4, K=64, lambdas=encoder.fourier.lambdas,
+        d_s=32,
+        d_v=8,
+        H=4,
+        K=64,
+        lambdas=encoder.fourier.lambdas,
         target_scales=[1e2, 1e3, 1e4, 1e5],
         **(layer_kwargs or {}),
     )

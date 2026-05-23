@@ -9,3 +9,10 @@ dist/
 .ipynb_checkpoints/
 *.swp
 .DS_Store
+
+# Logs
+logs/
+*.log
+
+# Output artifacts
+out/

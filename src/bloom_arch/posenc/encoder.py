@@ -20,7 +20,7 @@ when the spatial head composes the parts.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import torch
 from torch import nn

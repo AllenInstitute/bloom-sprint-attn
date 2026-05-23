@@ -21,7 +21,11 @@ def test_spatial_attention_constructs_from_cuda_lambdas():
     # This used to raise "tensors not on the same device" because log_L was
     # built on CPU while lambdas had been moved to CUDA by the .cuda() above.
     layer = SpatialAttention(
-        d_s=32, d_v=8, H=3, K=64, lambdas=encoder.fourier.lambdas,
+        d_s=32,
+        d_v=8,
+        H=3,
+        K=64,
+        lambdas=encoder.fourier.lambdas,
         target_scales=[1e3, 1e4, 1e5],
     )
     # Init params should land on the same device as lambdas.
@@ -32,7 +36,11 @@ def test_spatial_attention_constructs_from_cuda_lambdas():
 def test_spatial_attention_sdpa_constructs_from_cuda_lambdas():
     encoder = ChromLocalPosEncoder(d_u=32, K=64, lambda_min=10.0, lambda_max=1.0e8).cuda()
     layer = SpatialAttentionSDPA(
-        d_s=32, d_v=8, H=3, K=64, lambdas=encoder.fourier.lambdas,
+        d_s=32,
+        d_v=8,
+        H=3,
+        K=64,
+        lambdas=encoder.fourier.lambdas,
         target_scales=[1e3, 1e4, 1e5],
     )
     assert layer.log_w.device == encoder.fourier.lambdas.device
