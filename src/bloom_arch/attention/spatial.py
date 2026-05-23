@@ -23,11 +23,11 @@ With ``use_baseline=False``, the β·u term is dropped:
 wavelength so the head specializes coherently per wavelength rather than per
 individual basis dimension.
 
-Learnable parameters per head:
-    - ``log_w_h``  : ℝ^K, parameterized in log-space so ``w_h = exp(log_w_h) ≥ 0``
+Parameters per head (learnable by default, individually freezable):
+    - ``log_w_h``  : ℝ^K, parameterized in log-space (``learn_w=False`` to freeze)
     - ``β_h``      : scalar, present only when ``use_baseline=True``
-    - ``log_tau_h``: scalar (temperature, parameterized in log-space)
-    - ``W_V^(h)``  : Linear(d_s, d_v)
+    - ``log_tau_h``: scalar temperature in log-space (``learn_tau=False`` to freeze)
+    - ``W_V^(h)``  : Linear(d_s, d_v) — always learnable
 """
 
 from __future__ import annotations
@@ -91,6 +91,13 @@ class SpatialAttention(nn.Module):
         baseline term in the logit and require ``u`` in forward(). If False,
         the logit consists solely of the Fourier r_phi term, ``beta`` is not
         created as a parameter, and ``u`` may be None.
+    learn_tau : bool
+        If True (default), τ_h is a learnable parameter. If False, τ_h is
+        held fixed at ``tau_init`` (registered as a buffer).
+    learn_w : bool
+        If True (default), log_w is a learnable parameter. If False, the
+        wavelength weights are held fixed at their log-Gaussian
+        initialization (registered as a buffer).
     """
 
     def __init__(
@@ -105,6 +112,8 @@ class SpatialAttention(nn.Module):
         beta_init: float = 1.0,
         tau_init: float = 1.0,
         use_baseline: bool = True,
+        learn_tau: bool = True,
+        learn_w: bool = True,
     ) -> None:
         super().__init__()
         if lambdas.shape != (K,):
@@ -116,6 +125,8 @@ class SpatialAttention(nn.Module):
         self.H = H
         self.K = K
         self.use_baseline = use_baseline
+        self.learn_tau = learn_tau
+        self.learn_w = learn_w
 
         if target_scales is None:
             lo = float(lambdas.min()) * 10.0
@@ -135,13 +146,24 @@ class SpatialAttention(nn.Module):
         self.target_scales = tuple(float(s) for s in target_scales)
         self.rho = rho
 
-        # Per-head learnable parameters.
+        # Per-head wavelength weights (log-space).
         log_w_init = _default_log_gaussian_init(K, self.lambdas, target_scales, rho)  # [H, K]
-        self.log_w = nn.Parameter(log_w_init)  # [H, K]
-        self.beta = nn.Parameter(torch.full((H,), float(beta_init))) if use_baseline else None
-        self.log_tau = nn.Parameter(torch.full((H,), math.log(tau_init)))  # [H]
+        if learn_w:
+            self.log_w = nn.Parameter(log_w_init)
+        else:
+            self.register_buffer("log_w", log_w_init)
 
-        # Sequence → values. Single fused projection of width H*d_v.
+        # Per-head baseline (optional).
+        self.beta = nn.Parameter(torch.full((H,), float(beta_init))) if use_baseline else None
+
+        # Per-head temperature (log-space).
+        log_tau_init = torch.full((H,), math.log(tau_init))
+        if learn_tau:
+            self.log_tau = nn.Parameter(log_tau_init)
+        else:
+            self.register_buffer("log_tau", log_tau_init)
+
+        # Sequence → values.
         self.W_V = nn.Linear(d_s, H * d_v, bias=False)
 
     @property

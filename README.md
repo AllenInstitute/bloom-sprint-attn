@@ -69,6 +69,34 @@ A few notes on the interface:
   Defaults to a geometric spacing across the encoder's `[λ_min, λ_max]`
   range when omitted.
 
+## Controlling what is learned
+
+Each spatial head has three component families that can individually be
+made learnable or fixed:
+
+| Component | Flag | Default | Effect when disabled |
+|---|---|---|---|
+| β·u baseline | `use_baseline=False` | on | Removes the β_h² · (u_i·u_j) floor entirely; `u` may be None |
+| Temperature τ | `learn_tau=False` | learns | τ_h stays fixed at `tau_init` (buffer, no gradient) |
+| Wavelength weights w | `learn_w=False` | learns | w_h stays at its log-Gaussian initialization (buffer, no gradient) |
+
+```python
+# Example: fixed temperature, learned weights, no chromosome baseline.
+spatial = SpatialAttention(
+    d_s=512, d_v=64, H=6, K=112,
+    lambdas=encoder.fourier.lambdas,
+    target_scales=[1e2, 1e3, 1e4, 1e5, 1e6, 1e7],
+    use_baseline=False,
+    learn_tau=False,
+    learn_w=True,
+)
+# u is not needed when baseline is off:
+out = spatial(None, pos["r_phi"], s)
+```
+
+`W_V` (the value projection) is always learnable. These flags apply
+identically to `SpatialAttentionSDPA`.
+
 ## Flash Attention / SDPA
 
 For high-throughput training, swap in `SpatialAttentionSDPA`, which

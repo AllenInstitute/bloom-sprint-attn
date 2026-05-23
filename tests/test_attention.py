@@ -295,3 +295,35 @@ def test_spatial_no_baseline_forward():
 
     out_with_u = spatial(pos["u"], pos["r_phi"], s)
     assert torch.allclose(out, out_with_u)
+
+
+def test_spatial_frozen_tau_and_w():
+    """learn_tau=False / learn_w=False registers buffers, not parameters."""
+    K = 32
+    encoder = ChromLocalPosEncoder(d_u=8, K=K, lambda_min=10.0, lambda_max=1.0e8)
+    spatial = SpatialAttention(
+        d_s=16,
+        d_v=8,
+        H=2,
+        K=K,
+        lambdas=encoder.fourier.lambdas,
+        target_scales=[1e3, 1e5],
+        learn_tau=False,
+        learn_w=False,
+    )
+    param_names = {n for n, _ in spatial.named_parameters()}
+    assert "log_tau" not in param_names
+    assert "log_w" not in param_names
+    assert "beta" in param_names
+
+    B, N = 1, 4
+    coords = torch.rand(B, N) * 1.0e8
+    keys = [[(SPECIES, ASSEMBLY, "chr1")] * N for _ in range(B)]
+    pos = encoder(coords, keys)
+    s = torch.randn(B, N, 16, requires_grad=True)
+
+    out = spatial(pos["u"], pos["r_phi"], s)
+    loss = out.sum()
+    loss.backward()
+    assert spatial.beta.grad is not None
+    assert s.grad is not None
