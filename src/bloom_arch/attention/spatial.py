@@ -7,18 +7,25 @@ learned linear projection of the sequence embedding for values:
     k_j^(h) = p_j^(h)
     v_j^(h) = W_V^(h) s_j
 
-with ``p_i^(h) = [β_h u_g(i) ; r_g(i) ⊙ (w_h ⊙ φ(x_i))]`` (spec §12.2). The
-logit reduces to
+With ``use_baseline=True`` (default):
+
+    p_i^(h) = [β_h u_g(i) ; r_g(i) ⊙ (w_h ⊙ φ(x_i))]
 
     ℓ_ij^(h) = τ_h · (β_h² · u_i·u_j + Σ_d w_h_tied[d]² · r_phi_i[d] · r_phi_j[d])
 
-where ``w_h_tied`` repeats each scalar weight across the (sin, cos) pair of
-its wavelength so the head specializes coherently per wavelength rather than
-per individual basis dimension.
+With ``use_baseline=False``, the β·u term is dropped:
+
+    p_i^(h) = r_g(i) ⊙ (w_h ⊙ φ(x_i))
+
+    ℓ_ij^(h) = τ_h · Σ_d w_h_tied[d]² · r_phi_i[d] · r_phi_j[d]
+
+``w_h_tied`` repeats each scalar weight across the (sin, cos) pair of its
+wavelength so the head specializes coherently per wavelength rather than per
+individual basis dimension.
 
 Learnable parameters per head:
     - ``log_w_h``  : ℝ^K, parameterized in log-space so ``w_h = exp(log_w_h) ≥ 0``
-    - ``β_h``      : scalar (the "same-chromosome strength")
+    - ``β_h``      : scalar, present only when ``use_baseline=True``
     - ``log_tau_h``: scalar (temperature, parameterized in log-space)
     - ``W_V^(h)``  : Linear(d_s, d_v)
 """
@@ -76,10 +83,14 @@ class SpatialAttention(nn.Module):
         Broadness of the log-Gaussian window in natural log units. Default
         ``log(10)/2`` ≈ 1.15 (FWHM ≈ 1.2 decades).
     beta_init : float
-        Initial value for β_h (spec §8 — "a learned per-spatial-head scalar
-        initialized to a moderate value").
+        Initial value for β_h. Only used when ``use_baseline=True``.
     tau_init : float
         Initial value for τ_h.
+    use_baseline : bool
+        If True (default), include the β_h² · (u_i · u_j) same-chromosome
+        baseline term in the logit and require ``u`` in forward(). If False,
+        the logit consists solely of the Fourier r_phi term, ``beta`` is not
+        created as a parameter, and ``u`` may be None.
     """
 
     def __init__(
@@ -93,6 +104,7 @@ class SpatialAttention(nn.Module):
         rho: float = math.log(10.0) / 2.0,
         beta_init: float = 1.0,
         tau_init: float = 1.0,
+        use_baseline: bool = True,
     ) -> None:
         super().__init__()
         if lambdas.shape != (K,):
@@ -103,6 +115,7 @@ class SpatialAttention(nn.Module):
         self.d_v = d_v
         self.H = H
         self.K = K
+        self.use_baseline = use_baseline
 
         if target_scales is None:
             lo = float(lambdas.min()) * 10.0
@@ -125,7 +138,7 @@ class SpatialAttention(nn.Module):
         # Per-head learnable parameters.
         log_w_init = _default_log_gaussian_init(K, self.lambdas, target_scales, rho)  # [H, K]
         self.log_w = nn.Parameter(log_w_init)  # [H, K]
-        self.beta = nn.Parameter(torch.full((H,), float(beta_init)))  # [H]
+        self.beta = nn.Parameter(torch.full((H,), float(beta_init))) if use_baseline else None
         self.log_tau = nn.Parameter(torch.full((H,), math.log(tau_init)))  # [H]
 
         # Sequence → values. Single fused projection of width H*d_v.
@@ -151,7 +164,7 @@ class SpatialAttention(nn.Module):
 
             K_h(Δ) = β_h² + (1/K) Σ_k w_{h,k}² cos(2π Δ / λ_k)
 
-        where the (1/K) comes from the φ-normalization.
+        When ``use_baseline=False``, the β² term is omitted.
 
         Parameters
         ----------
@@ -167,11 +180,13 @@ class SpatialAttention(nn.Module):
         cosines = torch.cos(delta.unsqueeze(-1) * omegas)  # [D, K]
         w = self.w()  # [H, K]
         phi_term = (cosines.unsqueeze(0) * (w**2).unsqueeze(1)).sum(-1) / self.K  # [H, D]
-        return self.beta.unsqueeze(-1) ** 2 + phi_term
+        if self.beta is not None:
+            return self.beta.unsqueeze(-1) ** 2 + phi_term
+        return phi_term
 
     def forward(
         self,
-        u: torch.Tensor,  # [B, N, d_u]
+        u: torch.Tensor | None,  # [B, N, d_u] or None when use_baseline=False
         r_phi: torch.Tensor,  # [B, N, 2K]
         s: torch.Tensor,  # [B, N, d_s]
     ) -> torch.Tensor:
@@ -179,8 +194,9 @@ class SpatialAttention(nn.Module):
 
         Parameters
         ----------
-        u : Tensor [B, N, d_u]
-            Per-feature u_g code.
+        u : Tensor [B, N, d_u] or None
+            Per-feature u_g code. Required when ``use_baseline=True``, ignored
+            (may be None) otherwise.
         r_phi : Tensor [B, N, 2K]
             Per-feature r_g ⊙ φ(x).
         s : Tensor [B, N, d_s]
@@ -192,31 +208,31 @@ class SpatialAttention(nn.Module):
             Per-head attention output.
         """
         B, N, _ = r_phi.shape
-        if u.shape[:2] != (B, N) or s.shape[:2] != (B, N):
-            raise ValueError("u, r_phi, s must agree on [B, N]")
+        if s.shape[:2] != (B, N):
+            raise ValueError("r_phi and s must agree on [B, N]")
         if r_phi.shape[-1] != 2 * self.K:
             raise ValueError(f"r_phi last dim must be 2*K = {2 * self.K}, got {r_phi.shape[-1]}")
 
-        # u term: β_h² · (u_i · u_j), shape [B, N, N] then broadcast to heads.
-        u_dot = torch.matmul(u, u.transpose(-1, -2))  # [B, N, N]
-        beta_sq = (self.beta**2).view(1, self.H, 1, 1)  # [1, H, 1, 1]
-        u_logit = beta_sq * u_dot.unsqueeze(1)  # [B, H, N, N]
-
         # r_phi term: weight by w_tiled per head, then inner product.
         w_tiled = self.w_tiled()  # [H, 2K]
-        # weighted_r[b, n, h, d] = r_phi[b, n, d] * w_tiled[h, d]
-        # logit_phi[b, h, i, j] = Σ_d weighted_r[b, i, h, d] * weighted_r[b, j, h, d]
-        #                       = Σ_d w_tiled[h, d]² · r_phi[b, i, d] · r_phi[b, j, d]
         weighted_r = r_phi.unsqueeze(2) * w_tiled.view(1, 1, self.H, -1)  # [B, N, H, 2K]
-        # einsum: contract last dim, keep batch+head, produce [B, H, N, N]
-        phi_logit = torch.einsum("bihd,bjhd->bhij", weighted_r, weighted_r)
+        phi_logit = torch.einsum("bihd,bjhd->bhij", weighted_r, weighted_r)  # [B, H, N, N]
 
-        # Combine and scale by τ_h.
+        # Baseline u term: β_h² · (u_i · u_j).
+        if self.beta is not None:
+            if u is None:
+                raise ValueError("u is required when use_baseline=True")
+            if u.shape[:2] != (B, N):
+                raise ValueError("u, r_phi, s must agree on [B, N]")
+            u_dot = torch.matmul(u, u.transpose(-1, -2))  # [B, N, N]
+            beta_sq = (self.beta**2).view(1, self.H, 1, 1)  # [1, H, 1, 1]
+            logit = phi_logit + beta_sq * u_dot.unsqueeze(1)
+        else:
+            logit = phi_logit
+
+        # Scale by τ_h and apply softmax over keys.
         tau = self.tau.view(1, self.H, 1, 1)  # [1, H, 1, 1]
-        logits = tau * (u_logit + phi_logit)  # [B, H, N, N]
-
-        # Attention weights — softmax over j.
-        attn = torch.softmax(logits, dim=-1)  # [B, H, N, N]
+        attn = torch.softmax(tau * logit, dim=-1)  # [B, H, N, N]
 
         # Values: project sequence and reshape to [B, H, N, d_v].
         v = self.W_V(s).view(B, N, self.H, self.d_v).transpose(1, 2)  # [B, H, N, d_v]

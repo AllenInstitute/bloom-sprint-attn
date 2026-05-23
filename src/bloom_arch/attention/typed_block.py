@@ -82,7 +82,10 @@ class TypedMultiHeadAttention(nn.Module):
         Parameters
         ----------
         s : Tensor [B, N, d_s]
-        u, r_phi : positional encoder outputs (required iff H_spatial > 0)
+        u : Tensor [B, N, d_u] or None
+            Required when spatial heads use the baseline (``use_baseline=True``).
+        r_phi : Tensor [B, N, 2K] or None
+            Required when spatial heads are present (H_spatial > 0).
 
         Returns
         -------
@@ -92,8 +95,8 @@ class TypedMultiHeadAttention(nn.Module):
         if self.content is not None:
             outs.append(self.content(s))  # [B, N, H_c, d_v]
         if self.spatial is not None:
-            if u is None or r_phi is None:
-                raise ValueError("spatial heads require u and r_phi")
+            if r_phi is None:
+                raise ValueError("spatial heads require r_phi")
             outs.append(self.spatial(u, r_phi, s))  # [B, N, H_s, d_v]
         cat = torch.cat(outs, dim=-2)  # [B, N, H_total, d_v]
         B, N, H_total, d_v = cat.shape

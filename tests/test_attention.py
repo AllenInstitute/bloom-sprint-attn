@@ -264,3 +264,34 @@ def test_content_attention_shape():
     s = torch.randn(2, 7, 64)
     out = layer(s)
     assert out.shape == (2, 7, 4, 16)
+
+
+# ---------------------------------------------------------------------------
+# use_baseline=False: spatial attention without the β·u term
+# ---------------------------------------------------------------------------
+def test_spatial_no_baseline_forward():
+    """SpatialAttention with use_baseline=False runs without u and has no beta param."""
+    K = 32
+    encoder = ChromLocalPosEncoder(d_u=8, K=K, lambda_min=10.0, lambda_max=1.0e8)
+    spatial = SpatialAttention(
+        d_s=16,
+        d_v=8,
+        H=3,
+        K=K,
+        lambdas=encoder.fourier.lambdas,
+        target_scales=[1e3, 1e4, 1e5],
+        use_baseline=False,
+    )
+    assert spatial.beta is None
+
+    B, N = 2, 6
+    coords = torch.rand(B, N) * 1.0e8
+    keys = [[(SPECIES, ASSEMBLY, "chr1")] * N for _ in range(B)]
+    pos = encoder(coords, keys)
+    s = torch.randn(B, N, 16)
+
+    out = spatial(None, pos["r_phi"], s)
+    assert out.shape == (B, N, 3, 8)
+
+    out_with_u = spatial(pos["u"], pos["r_phi"], s)
+    assert torch.allclose(out, out_with_u)

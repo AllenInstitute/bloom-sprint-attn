@@ -33,7 +33,6 @@ class ContentAttention(nn.Module):
         self.d_s = d_s
         self.d_v = d_v
         self.H = H
-        # Fused QKV projection: [d_s] → [3 * H * d_v]
         self.W_Q = nn.Linear(d_s, H * d_v, bias=False)
         self.W_K = nn.Linear(d_s, H * d_v, bias=False)
         self.W_V = nn.Linear(d_s, H * d_v, bias=False)
