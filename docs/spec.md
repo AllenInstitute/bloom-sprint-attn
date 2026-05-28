@@ -62,7 +62,7 @@ The model then uses a block with custom attention heads:
  - `k, q` are derived from position encoding $p_i$ without projection matrices. 
  - `v` from content encoding $s_i = [n_i;m_i]$.
 
-3. **Standard heads** *(deferred — not yet specified)*
+3. **Standard heads** 
  - `k, q, v` are derived from the full projected feature encodings $[n_i; p_i; m_i]$. 
 
 ## 3. Attention head definitions
@@ -213,7 +213,7 @@ $$
 |---                     |---                     |---          |
 | `n_sequence_heads`     | int (user)             | Number of sequence attention heads |
 | `n_position_heads`     | int (user)             | Number of position heads; sets count of length scales `Lh` |
-| `n_standard_heads`     | int (user)             | Number of standard attention heads *(deferred)* |
+| `n_standard_heads`     | int (user)             | Number of standard attention heads |
 | `K`                    | int (user)             | Fourier wavelength count; `d_phi = 2K`. Expected values ~64–128 |
 | `d_u`                  | int (user)             | Chromosome-baseline dimension. Must satisfy `d_u % 2 == 0`. Expected ~32. Requires `d_u ≥ G` where G is the max number of distinct chromosomes per batch (upper bound: 30 for single-species mammalian data) |
 | `lam_min`, `lam_max`   | float, default `10`, `1e8` | Wavelength range in bp for the Fourier grid |
