@@ -2,10 +2,13 @@
 
 Q and K are projected from the sequence encoding n_i.
 V is projected from the content encoding s_i = [n_i; m_i].
+Scaling: 1/sqrt(d_seq) per spec §3.1.
 Uses F.scaled_dot_product_attention for GPU-optimized dispatch.
 """
 
 from __future__ import annotations
+
+import math
 
 import torch
 from torch import nn
@@ -28,6 +31,7 @@ class SequenceHeads(nn.Module):
         self.d_s = d_s
         self.d_v = d_v
         self.H = H
+        self._scale = 1.0 / math.sqrt(d_seq)
         self.W_Q = nn.Linear(d_seq, H * d_v, bias=False)
         self.W_K = nn.Linear(d_seq, H * d_v, bias=False)
         self.W_V = nn.Linear(d_s, H * d_v, bias=False)
@@ -49,5 +53,5 @@ class SequenceHeads(nn.Module):
         k = self.W_K(n).view(B, L, H, d_v).transpose(1, 2)
         v = self.W_V(s).view(B, L, H, d_v).transpose(1, 2)
 
-        out = F.scaled_dot_product_attention(q, k, v)
+        out = F.scaled_dot_product_attention(q, k, v, scale=self._scale)
         return out.transpose(1, 2).reshape(B, L, H * d_v)
