@@ -219,7 +219,7 @@ $$
 | `lam_min`, `lam_max`   | float, default `10`, `1e8` | Wavelength range in bp for the Fourier grid |
 | `lams`                 | derived                | Logarithmically spaced Fourier wavelengths from `lam_min` to `lam_max`, length `K` |
 | `Lh`                   | derived                | Logarithmically spaced length scales from `lam_min * 10` to `lam_max / 10`, length `n_position_heads`. The 10× inset avoids heads whose Gaussian window extends past the wavelength grid |
-| `rho`                  | float (user)           | Log-Gaussian bandwidth (natural log units). Controls spectral width of the per-head initialization window |
+| `rho`                  | float, default `log(10)/2` | Log-Gaussian bandwidth (natural log units). Controls spectral width of the per-head initialization window |
 | `w_h`                  | derived (per head)     | Initialized as log-Gaussian from `lams`, `Lh`, `rho`, then rescaled to $\|w_h\|^2 = K$. Learnable when `learn_spatial_kernel=True` *(not yet implemented; raises error)* |
 | `beta`                 | float, default `0`     | Same-chromosome baseline strength. If `beta == 0` and `d_u != 0`, emit a warning |
 | `tau`                  | float, init `1.0`      | Per-head temperature. Learnable when `learn_tau=True` |
