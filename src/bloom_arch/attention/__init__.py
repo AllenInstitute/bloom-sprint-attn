@@ -1,4 +1,4 @@
-"""Attention heads for the BloomAttentionBlock (spec §2-§3)."""
+"""Attention heads for the BloomAttentionBlock."""
 
 from bloom_arch.attention.block import BloomAttentionBlock
 from bloom_arch.attention.position_heads import PositionHeads

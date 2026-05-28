@@ -1,4 +1,4 @@
-"""Positional encoder (spec §4-§6).
+"""Positional encoder.
 
 Composes :class:`GenomeCodebook` and :class:`FourierCoordEncoder` to produce
 the two channels of the positional encoding from integer genome indices and

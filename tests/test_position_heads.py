@@ -148,10 +148,12 @@ def test_learn_tau_false_creates_buffer():
     assert "log_tau" in buf_names
 
 
-def test_learn_w_creates_parameter():
-    layer = _make_layer(learn_w=True)
-    param_names = {n for n, _ in layer.named_parameters()}
-    assert "log_w" in param_names
+def test_learn_w_raises():
+    """learn_w=True raises NotImplementedError (not yet implemented)."""
+    import pytest
+
+    with pytest.raises(NotImplementedError, match="reparameterization"):
+        _make_layer(learn_w=True)
 
 
 def test_learn_w_false_creates_buffer():
@@ -163,7 +165,7 @@ def test_learn_w_false_creates_buffer():
 def test_gradients_flow():
     """All learnable params receive gradients."""
     torch.manual_seed(3)
-    layer = _make_layer(d_s=16, d_u=8, K=32, d_v=8, H=2, learn_tau=True, learn_w=True)
+    layer = _make_layer(d_s=16, d_u=8, K=32, d_v=8, H=2, learn_tau=True, beta_init=1.0)
 
     B, L = 2, 6
     u = torch.randn(B, L, 8)
@@ -174,7 +176,6 @@ def test_gradients_flow():
     loss = (out**2).mean()
     loss.backward()
 
-    assert layer.log_w.grad is not None and layer.log_w.grad.abs().sum() > 0
     assert layer.beta.grad is not None and layer.beta.grad.abs().sum() > 0
     assert layer.log_tau.grad is not None and layer.log_tau.grad.abs().sum() > 0
     assert layer.W_V.weight.grad is not None and layer.W_V.weight.grad.abs().sum() > 0

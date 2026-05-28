@@ -1,8 +1,8 @@
-"""Sequence attention heads (spec §3.1).
+"""Sequence attention heads.
 
 Q and K are projected from the sequence encoding n_i.
 V is projected from the content encoding s_i = [n_i; m_i].
-Scaling: 1/sqrt(d_seq) per spec §3.1.
+Scaling: 1/sqrt(d_seq) where d_seq is the sequence encoding dimension.
 Uses F.scaled_dot_product_attention for GPU-optimized dispatch.
 """
 

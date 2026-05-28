@@ -1,7 +1,7 @@
-"""Standard attention heads (spec §3, head type 3).
+"""Standard attention heads.
 
 Q, K, and V are all projected from the full feature encoding
-f_i = [n_i; p_i; m_i] where p_i = [u_g; r_phi_i].
+f_i = [n_i; p_i; m_i] where p_i = [beta * u_g; r_phi_i].
 Uses F.scaled_dot_product_attention for GPU-optimized dispatch.
 """
 

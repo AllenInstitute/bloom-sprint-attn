@@ -1,4 +1,4 @@
-"""Position attention heads (spec §3.2, §4.2).
+"""Position attention heads.
 
 Q = K = sqrt(tau_h) * [beta_h * u_g; w_tiled_h * r_phi_i]
 V from projected content encoding s.
@@ -40,7 +40,8 @@ class PositionHeads(nn.Module):
     """Multi-head position attention with per-head wavelength weighting.
 
     Constructs Q = K = sqrt(tau) * [beta * u_g; w_tiled * r_phi] so that
-    Q.K^T reproduces the spec logit formula. Uses SDPA with scale=1.0.
+    Q.K^T = tau * (beta^2 * u_i.u_j + (1/K) sum_k w_k^2 cos(2pi*Delta/lam_k)).
+    Uses SDPA with scale=1.0 (tau baked into Q=K).
 
     Args:
         d_s: Content encoding dimension (input for V projection).
@@ -55,7 +56,9 @@ class PositionHeads(nn.Module):
         beta_init: Initial value for per-head beta.
         tau_init: Initial value for per-head tau.
         learn_tau: If True, tau is a learnable parameter. Otherwise a buffer.
-        learn_w: If True, log_w is a learnable parameter. Otherwise a buffer.
+        learn_w: Reserved. Must be False (learnable w requires
+            reparameterization for ||w||^2=K and non-negativity; not yet
+            implemented).
         pad_v_for_flash: If True, zero-pad V to match QK head_dim for flash
             attention dispatch. Mathematically inert.
     """
@@ -70,13 +73,19 @@ class PositionHeads(nn.Module):
         lambdas: torch.Tensor,
         target_scales: Sequence[float] | None = None,
         rho: float = math.log(10.0) / 2.0,
-        beta_init: float = 1.0,
+        beta_init: float = 0.0,
         tau_init: float = 1.0,
         learn_tau: bool = False,
-        learn_w: bool = True,
+        learn_w: bool = False,
         pad_v_for_flash: bool = False,
     ) -> None:
         super().__init__()
+        if learn_w:
+            raise NotImplementedError(
+                "learn_w=True requires reparameterization to maintain "
+                "||w_h||^2 = K and non-negativity; not yet implemented"
+            )
+
         self.d_s = d_s
         self.d_u = d_u
         self.K = K
@@ -98,12 +107,9 @@ class PositionHeads(nn.Module):
 
         self.register_buffer("lambdas", lambdas.detach().clone())
 
-        # Per-head wavelength weights in log space
+        # Per-head wavelength weights in log space (fixed at init)
         log_w_init = _log_gaussian_init(K, lambdas, target_scales, rho)
-        if learn_w:
-            self.log_w = nn.Parameter(log_w_init)
-        else:
-            self.register_buffer("log_w", log_w_init)
+        self.register_buffer("log_w", log_w_init)
 
         # Per-head beta
         self.beta = nn.Parameter(torch.full((H,), float(beta_init)))

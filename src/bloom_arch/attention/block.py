@@ -1,6 +1,5 @@
 """BloomAttentionBlock — top-level multi-head attention with three head types.
 
-Implements the full attention block from spec §2-§3:
 - Sequence heads: Q, K from n_i; V from s_i = [n_i; m_i]
 - Position heads: Q = K from positional encoding; V from s_i
 - Standard heads: Q, K, V from full feature [n_i; p_i; m_i]
@@ -41,10 +40,11 @@ class BloomAttentionBlock(nn.Module):
         target_scales: Per-position-head center wavelengths for log-Gaussian
             init. If None, log-spaced across the usable wavelength range.
         rho: Log-Gaussian bandwidth for position head initialization.
-        beta_init: Initial beta for position heads.
+        beta_init: Initial same-chromosome baseline strength (shared scalar
+            for standard heads; per-head in position heads).
         tau_init: Initial tau for position heads.
         learn_tau: If True, position head tau is learnable.
-        learn_w: If True, position head wavelength weights are learnable.
+        learn_w: Reserved. Must be False (not yet implemented).
         pad_v_for_flash: If True, pad V in position heads for flash dispatch.
         seed: Codebook seed for deterministic generation.
     """
@@ -65,10 +65,10 @@ class BloomAttentionBlock(nn.Module):
         lambda_max: float = 1.0e8,
         target_scales: Sequence[float] | None = None,
         rho: float = math.log(10.0) / 2.0,
-        beta_init: float = 1.0,
+        beta_init: float = 0.0,
         tau_init: float = 1.0,
         learn_tau: bool = False,
-        learn_w: bool = True,
+        learn_w: bool = False,
         pad_v_for_flash: bool = False,
         seed: int = 42,
     ) -> None:
@@ -123,11 +123,11 @@ class BloomAttentionBlock(nn.Module):
         )
 
         d_in_std = d_seq + d_u + 2 * K + d_val
-        self.std_heads = (
-            StandardHeads(d_in=d_in_std, d_v=d_v, H=n_standard_heads)
-            if n_standard_heads > 0
-            else None
-        )
+        if n_standard_heads > 0:
+            self.beta_std = nn.Parameter(torch.tensor(float(beta_init)))
+            self.std_heads = StandardHeads(d_in=d_in_std, d_v=d_v, H=n_standard_heads)
+        else:
+            self.std_heads = None
 
         H_total = n_sequence_heads + n_position_heads + n_standard_heads
         self.W_O = nn.Linear(H_total * d_v, d_out, bias=False)
@@ -165,7 +165,7 @@ class BloomAttentionBlock(nn.Module):
             outs.append(self.pos_heads(u, r_phi, s))
 
         if self.std_heads is not None:
-            p = torch.cat([u, r_phi], dim=-1)  # [B, L, d_u + 2K]
+            p = torch.cat([self.beta_std * u, r_phi], dim=-1)  # [B, L, d_u + 2K]
             f = torch.cat([n, p, m], dim=-1)  # [B, L, d_seq + d_u + 2K + d_val]
             outs.append(self.std_heads(f))
 

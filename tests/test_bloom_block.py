@@ -155,7 +155,7 @@ def test_same_chrom_nearby_preference():
 def test_all_params_receive_gradients():
     """Full backward pass reaches all learnable parameters."""
     torch.manual_seed(2)
-    block = _make_block(learn_tau=True, learn_w=True)
+    block = _make_block(learn_tau=True, beta_init=1.0)
     n, x, g, m = _make_inputs()
 
     out = block(n, x, g, m)

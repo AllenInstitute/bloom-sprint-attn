@@ -143,11 +143,13 @@ V is projected from the content encoding $s_i$.
 ### 4.3 Standard heads (spec §3, type 3)
 
 Q, K, and V are all projected from the full feature encoding
-$f_i = [n_i; u_{g_i}; r\_phi_i; m_i]$. Standard SDPA scaling applies.
+$f_i = [n_i; \beta \cdot u_{g_i}; r\_phi_i; m_i]$. Standard SDPA scaling applies.
+The block maintains a shared learnable $\beta$ for constructing $p_i$ in the
+standard heads input (separate from the per-head $\beta_h$ in position heads).
 
 ---
 
-## 5. Per-head scale selection (spec §4.2)
+## 5. Per-head scale selection
 
 Each position head $h$ carries a nonneg weight vector $w_h \in \mathbb{R}^K_{>0}$,
 and its kernel is:
@@ -176,6 +178,10 @@ The wavelength weight applies to both sin and cos of the same frequency.
 Storing $\log(w_{hk})$ rather than $w_{hk}$:
 1. Nonnegativity is free ($w = \exp(\log w) > 0$).
 2. Gradient geometry matches Adam's additive updates.
+
+**Note:** `learn_w=True` is not yet implemented. Making $w_h$ learnable
+requires reparameterization to maintain the $\|w_h\|^2 = K$ constraint and
+non-negativity during training. Currently `log_w` is a fixed buffer.
 
 ### 5.4 Softmax temperature $\tau_h$
 
@@ -225,10 +231,10 @@ back. Mathematically inert — verified by `test_pad_v_parity`.
 | `n_position_heads` | (required) | Number of position heads | One per scale of interest |
 | `target_scales` | log-spaced | Initial center wavelength | Within [10·λ_min, λ_max/10] |
 | `rho` | log(10)/2 | Log-Gaussian width | 0.4-2.5 |
-| `beta_init` | 1.0 | Initial floor β | β² ranges 0-2 in practice |
+| `beta_init` | 0.0 | Initial floor β | β² ranges 0-2 in practice |
 | `tau_init` | 1.0 | Initial temperature | τ typically 0.1-10 |
 | `learn_tau` | False | If True, tau is learnable | Set True to learn sharpness |
-| `learn_w` | True | If True, log_w is learnable | Set False to freeze kernel shape |
+| `learn_w` | False | Reserved (not yet implemented) | Raises NotImplementedError if True |
 | `d_v` | 64 | Per-head value dim | 32-128 |
 
 ### 7.3 Recommended training-time constraints

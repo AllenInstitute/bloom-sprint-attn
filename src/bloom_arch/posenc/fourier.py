@@ -1,4 +1,4 @@
-"""Multiscale Fourier coordinate encoding (spec §6).
+"""Multiscale Fourier coordinate encoding.
 
 For a coordinate ``x`` along a chromosome (in base pairs), this module returns
 
@@ -14,7 +14,7 @@ wavelength weights ``w_h`` can be tiled by `repeat_interleave(2)`.
 Properties (verified in tests/test_pos_encoder_v2.py):
 
 * Translation invariance of the dot product: ``φ(x_i)·φ(x_j) = (1/K) Σ_k cos(2π(x_i-x_j)/λ_k)``
-  depends only on |x_i − x_j|, not on absolute coordinate (spec §4.1).
+  depends only on |x_i − x_j|, not on absolute coordinate.
 * No learnable parameters; the log-spaced wavelengths are stored as a buffer.
 """
 

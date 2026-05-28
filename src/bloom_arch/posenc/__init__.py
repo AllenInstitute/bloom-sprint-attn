@@ -1,4 +1,4 @@
-"""Positional encoding components (spec §4-§6)."""
+"""Positional encoding components."""
 
 from bloom_arch.posenc.encoder import PosEncoder
 from bloom_arch.posenc.fourier import FourierCoordEncoder

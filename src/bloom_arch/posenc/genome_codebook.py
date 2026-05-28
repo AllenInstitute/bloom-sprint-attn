@@ -1,4 +1,4 @@
-"""Integer-indexed deterministic genome codebook (spec §5-§6).
+"""Integer-indexed deterministic genome codebook.
 
 Pre-generates chromosome baseline vectors ``u_g`` and sign vectors ``r_g``
 at init time using a deterministic seed-per-index scheme. All codes are
