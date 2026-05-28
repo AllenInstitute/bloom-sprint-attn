@@ -1,7 +1,6 @@
-# bloom-arch
+# bloom-sprint-attn
 
-Chromosome-local positional encoding and typed multi-head attention for
-transformer models that operate on bags of genome-derived features per cell.
+Chromosome-local positional encoding and typed multi-head attention for transformer models that operate on bags of genome-derived features per cell.
 
 The user gives the model a bag of features. Each feature carries a content
 embedding `s_i` (from a DNA encoder, an existing token embedding, etc.) and
