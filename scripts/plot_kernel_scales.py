@@ -93,8 +93,18 @@ def main():
     ax.set_ylabel("same-chrom kernel K_h(Δ)")
     lmin_s, lmax_s = _format_bp(lambda_min), _format_bp(lambda_max)
     ax.set_title(
-        f"Per-head spatial kernel at initialization\n"
+        f"Per-head spatial kernel at initialization (β={beta})\n"
         f"K={K} wavelengths, λ∈[{lmin_s}, {lmax_s}], log-Gaussian windows (ρ={rho:.2f})"
+    )
+    ax.axhline(beta**2, color="gray", linewidth=0.8, linestyle="--", alpha=0.7)
+    ax.annotate(
+        f"β² = {beta**2:.0f} (same-chrom floor)",
+        xy=(deltas[-1], beta**2),
+        xytext=(-10, 8),
+        textcoords="offset points",
+        fontsize=8,
+        ha="right",
+        color="gray",
     )
     ax.legend(fontsize=8, loc="upper right")
     ax.set_ylim(-0.2, 2.2)
