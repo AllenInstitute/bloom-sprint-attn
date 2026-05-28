@@ -1,13 +1,13 @@
-"""Typed attention heads (spec sections 5, 12)."""
+"""Attention heads for the BloomAttentionBlock (spec §2-§3)."""
 
-from bloom_arch.attention.content import ContentAttention
-from bloom_arch.attention.spatial import SpatialAttention
-from bloom_arch.attention.spatial_sdpa import SpatialAttentionSDPA
-from bloom_arch.attention.typed_block import TypedMultiHeadAttention
+from bloom_arch.attention.block import BloomAttentionBlock
+from bloom_arch.attention.position_heads import PositionHeads
+from bloom_arch.attention.sequence_heads import SequenceHeads
+from bloom_arch.attention.standard_heads import StandardHeads
 
 __all__ = [
-    "ContentAttention",
-    "SpatialAttention",
-    "SpatialAttentionSDPA",
-    "TypedMultiHeadAttention",
+    "BloomAttentionBlock",
+    "PositionHeads",
+    "SequenceHeads",
+    "StandardHeads",
 ]
