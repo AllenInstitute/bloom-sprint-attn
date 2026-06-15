@@ -49,7 +49,11 @@ x = torch.rand(B, L) * 2e8            # genomic coordinates in bp
 g = torch.randint(0, 24, (B, L))      # integer chromosome indices
 m = torch.randn(B, L, d_val)          # measured-value encoding
 
-out = block(n, x, g, m)               # [B, L, 256]
+# Optional: mask padding positions (True = padding, excluded as keys)
+key_padding_mask = torch.zeros(B, L, dtype=torch.bool)
+key_padding_mask[:, -4:] = True       # last 4 positions are padding
+
+out = block(n, x, g, m, key_padding_mask=key_padding_mask)  # [B, L, 256]
 ```
 
 Notes on the interface:
@@ -76,7 +80,7 @@ src/bloom_arch/
     ├── position_heads.py    # PositionHeads (Q=K from pos encoding; V from s)
     ├── standard_heads.py    # StandardHeads (Q,K,V from full feature)
     └── block.py             # BloomAttentionBlock (top-level)
-tests/                       # 43 tests
+tests/                       # unit and integration tests
 docs/
 ├── spec.md                  # design spec
 └── implementation.md        # math, parameter ranges, tuning notes

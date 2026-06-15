@@ -141,6 +141,7 @@ class PositionHeads(nn.Module):
         u: torch.Tensor,
         r_phi: torch.Tensor,
         s: torch.Tensor,
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Run position attention.
 
@@ -148,6 +149,7 @@ class PositionHeads(nn.Module):
             u: Tensor ``[B, L, d_u]`` -- chromosome baseline codes.
             r_phi: Tensor ``[B, L, 2K]`` -- sign-gated Fourier encoding.
             s: Tensor ``[B, L, d_s]`` -- content encoding for V projection.
+            attn_mask: Optional ``[B, 1, 1, L]`` boolean mask. True = attend.
 
         Returns:
             Tensor ``[B, L, H * d_v]`` -- concatenated per-head outputs.
@@ -174,9 +176,11 @@ class PositionHeads(nn.Module):
 
         if self.pad_v_for_flash and head_dim_qk > d_v:
             v_padded = F.pad(v, (0, head_dim_qk - d_v))
-            out_padded = F.scaled_dot_product_attention(qk, qk, v_padded, scale=1.0)
+            out_padded = F.scaled_dot_product_attention(
+                qk, qk, v_padded, attn_mask=attn_mask, scale=1.0
+            )
             out = out_padded[..., :d_v]
         else:
-            out = F.scaled_dot_product_attention(qk, qk, v, scale=1.0)
+            out = F.scaled_dot_product_attention(qk, qk, v, attn_mask=attn_mask, scale=1.0)
 
         return out.transpose(1, 2).reshape(B, L, H * d_v)

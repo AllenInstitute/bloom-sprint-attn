@@ -13,10 +13,11 @@ Cross-references in parentheses (e.g. `spec §3`) point to `docs/spec.md`.
 
 `BloomAttentionBlock` is a single `nn.Module` that takes four tensors —
 sequence encoding `n`, genomic coordinates `x`, integer genome index `g`,
-and value encoding `m` — and produces an output of dimension `d_out`.
+and value encoding `m` — plus an optional `key_padding_mask`, and produces
+an output of dimension `d_out`.
 
 ```
-Inputs: n [B, L, d_seq], x [B, L], g [B, L], m [B, L, d_val]
+Inputs: n [B, L, d_seq], x [B, L], g [B, L], m [B, L, d_val], key_padding_mask [B, L] (optional)
 
                  ┌──────────────┐
       x, g  ───►│  PosEncoder  │───► u [B, L, d_u], r_phi [B, L, 2K]
@@ -208,6 +209,22 @@ PyTorch's flash-attention backend requires `head_dim(Q) == head_dim(V)`.
 Position heads have QK dim $d_u + 2K$ but V dim $d_v$. Setting
 `pad_v_for_flash=True` zero-pads V to QK dim, calls SDPA, then slices
 back. Mathematically inert — verified by `test_pad_v_parity`.
+
+### 6.2 Key padding mask
+
+`BloomAttentionBlock.forward` accepts an optional `key_padding_mask` of
+shape `[B, L]` (bool, `True` = padding). Internally it is inverted and
+reshaped to `[B, 1, 1, L]` (SDPA convention: `True` = attend) and passed
+to all SDPA calls. Masked positions are excluded as keys but still produce
+output.
+
+**Backend dispatch behaviour:** PyTorch's flash-attention kernel does not
+support `attn_mask`; when a mask is present, SDPA falls back to the
+memory-efficient (xformers) backend, which is still O(N) memory and
+GPU-optimized. Without a mask, flash attention dispatches normally. This is
+the same tradeoff `nn.MultiheadAttention` makes. A future path to
+flash-native masking would be `flex_attention` or nested tensors
+(variable-length packing), which require a different API shape.
 
 ---
 

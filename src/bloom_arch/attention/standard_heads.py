@@ -31,11 +31,16 @@ class StandardHeads(nn.Module):
         self.W_K = nn.Linear(d_in, H * d_v, bias=False)
         self.W_V = nn.Linear(d_in, H * d_v, bias=False)
 
-    def forward(self, f: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        f: torch.Tensor,
+        attn_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Run standard multi-head self-attention.
 
         Args:
             f: Tensor ``[B, L, d_in]`` -- full feature encoding [n_i; p_i; m_i].
+            attn_mask: Optional ``[B, 1, 1, L]`` boolean mask. True = attend.
 
         Returns:
             Tensor ``[B, L, H * d_v]`` -- concatenated per-head outputs.
@@ -47,5 +52,5 @@ class StandardHeads(nn.Module):
         k = self.W_K(f).view(B, L, H, d_v).transpose(1, 2)
         v = self.W_V(f).view(B, L, H, d_v).transpose(1, 2)
 
-        out = F.scaled_dot_product_attention(q, k, v)
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
         return out.transpose(1, 2).reshape(B, L, H * d_v)
