@@ -123,7 +123,7 @@ def test_mask_gradient_flow():
 
 
 def test_mask_single_valid_position():
-    """When only one position is valid, output at that position is V of itself."""
+    """Single valid position produces finite output (edge case)."""
     torch.manual_seed(4)
     block = _make_block(
         n_sequence_heads=0,
