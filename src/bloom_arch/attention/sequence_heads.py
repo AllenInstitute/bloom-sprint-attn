@@ -36,12 +36,18 @@ class SequenceHeads(nn.Module):
         self.W_K = nn.Linear(d_seq, H * d_v, bias=False)
         self.W_V = nn.Linear(d_s, H * d_v, bias=False)
 
-    def forward(self, n: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        n: torch.Tensor,
+        s: torch.Tensor,
+        attn_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Run sequence attention.
 
         Args:
             n: Tensor ``[B, L, d_seq]`` -- sequence encoding.
             s: Tensor ``[B, L, d_s]`` -- content encoding (typically [n; m]).
+            attn_mask: Optional ``[B, 1, 1, L]`` boolean mask. True = attend.
 
         Returns:
             Tensor ``[B, L, H * d_v]`` -- concatenated per-head outputs.
@@ -53,5 +59,5 @@ class SequenceHeads(nn.Module):
         k = self.W_K(n).view(B, L, H, d_v).transpose(1, 2)
         v = self.W_V(s).view(B, L, H, d_v).transpose(1, 2)
 
-        out = F.scaled_dot_product_attention(q, k, v, scale=self._scale)
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, scale=self._scale)
         return out.transpose(1, 2).reshape(B, L, H * d_v)

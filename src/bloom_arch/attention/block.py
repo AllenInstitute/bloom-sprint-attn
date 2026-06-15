@@ -138,6 +138,7 @@ class BloomAttentionBlock(nn.Module):
         x: torch.Tensor,
         g: torch.Tensor,
         m: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Run the full attention block.
 
@@ -146,6 +147,9 @@ class BloomAttentionBlock(nn.Module):
             x: Tensor ``[B, L]`` -- genomic coordinates in base pairs (float).
             g: Tensor ``[B, L]`` -- integer genome/chromosome indices (long).
             m: Tensor ``[B, L, d_val]`` -- measured value encoding.
+            key_padding_mask: Optional ``[B, L]`` boolean mask. ``True``
+                indicates a padding position whose key is excluded from
+                attention. ``None`` means no masking.
 
         Returns:
             Tensor ``[B, L, d_out]`` -- block output.
@@ -156,18 +160,23 @@ class BloomAttentionBlock(nn.Module):
         u = pos["u"].to(dtype=n.dtype)  # [B, L, d_u]
         r_phi = pos["r_phi"].to(dtype=n.dtype)  # [B, L, 2K]
 
+        # Convert key_padding_mask (True=masked) to SDPA format (True=allowed)
+        attn_mask: torch.Tensor | None = None
+        if key_padding_mask is not None:
+            attn_mask = (~key_padding_mask).unsqueeze(1).unsqueeze(2)
+
         outs = []
 
         if self.seq_heads is not None:
-            outs.append(self.seq_heads(n, s))
+            outs.append(self.seq_heads(n, s, attn_mask=attn_mask))
 
         if self.pos_heads is not None:
-            outs.append(self.pos_heads(u, r_phi, s))
+            outs.append(self.pos_heads(u, r_phi, s, attn_mask=attn_mask))
 
         if self.std_heads is not None:
             p = torch.cat([self.beta_std * u, r_phi], dim=-1)  # [B, L, d_u + 2K]
             f = torch.cat([n, p, m], dim=-1)  # [B, L, d_seq + d_u + 2K + d_val]
-            outs.append(self.std_heads(f))
+            outs.append(self.std_heads(f, attn_mask=attn_mask))
 
         cat = torch.cat(outs, dim=-1)  # [B, L, H_total * d_v]
         return self.W_O(cat)
