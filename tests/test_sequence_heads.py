@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import math
+
+import pytest
 import torch
+from torch.nn import functional as F
 
 from bloom_arch.attention.sequence_heads import SequenceHeads
 
@@ -66,3 +70,42 @@ def test_single_token():
     out = layer(n, s)
     assert out.shape == (2, 1, 16)
     assert torch.isfinite(out).all()
+
+
+def test_scale_is_per_head_dim():
+    """Scale is 1/sqrt(d_v), not 1/sqrt(d_seq) (spec §3.1).
+
+    The QK dot product runs over the per-head projected dimension d_v, so the
+    softmax temperature must be 1/sqrt(d_v) — matching StandardHeads and SDPA's
+    default. Uses d_seq != d_v so the wrong (input-dim) scaling would fail.
+    """
+    layer = SequenceHeads(d_seq=64, d_s=96, d_v=8, H=4)
+    assert layer._scale == pytest.approx(1.0 / math.sqrt(8))
+    assert layer._scale != pytest.approx(1.0 / math.sqrt(64))
+
+
+def test_forward_matches_reference_scaling():
+    """End-to-end: forward equals softmax(QK^T / sqrt(d_v)) @ V.
+
+    Reconstructs the reference from the layer's own projections, pinning the
+    effective scale (not just the stored constant) to the per-head dimension.
+    """
+    torch.manual_seed(3)
+    d_seq, d_s, d_v, H = 64, 96, 8, 4
+    B, L = 2, 7
+    layer = SequenceHeads(d_seq=d_seq, d_s=d_s, d_v=d_v, H=H)
+    n = torch.randn(B, L, d_seq)
+    s = torch.randn(B, L, d_s)
+
+    out = layer(n, s)
+
+    # Hand-rolled reference using the layer's own projected q/k/v.
+    q = layer.W_Q(n).view(B, L, H, d_v).transpose(1, 2)
+    k = layer.W_K(n).view(B, L, H, d_v).transpose(1, 2)
+    v = layer.W_V(s).view(B, L, H, d_v).transpose(1, 2)
+    logits = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(d_v)
+    ref = torch.matmul(F.softmax(logits, dim=-1), v)
+    ref = ref.transpose(1, 2).reshape(B, L, H * d_v)
+
+    diff = (out - ref).abs().max().item()
+    assert diff < 1e-5, f"Forward does not match 1/sqrt(d_v) reference: {diff:.2e}"
