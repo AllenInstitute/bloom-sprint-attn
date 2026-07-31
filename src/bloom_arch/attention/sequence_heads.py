@@ -2,7 +2,8 @@
 
 Q and K are projected from the sequence encoding n_i.
 V is projected from the content encoding s_i = [n_i; m_i].
-Scaling: 1/sqrt(d_seq) where d_seq is the sequence encoding dimension.
+Scaling: 1/sqrt(d_v) where d_v is the per-head query/key dimension
+(standard scaled-dot-product attention).
 Uses F.scaled_dot_product_attention for GPU-optimized dispatch.
 """
 
@@ -31,7 +32,7 @@ class SequenceHeads(nn.Module):
         self.d_s = d_s
         self.d_v = d_v
         self.H = H
-        self._scale = 1.0 / math.sqrt(d_seq)
+        self._scale = 1.0 / math.sqrt(d_v)
         self.W_Q = nn.Linear(d_seq, H * d_v, bias=False)
         self.W_K = nn.Linear(d_seq, H * d_v, bias=False)
         self.W_V = nn.Linear(d_s, H * d_v, bias=False)

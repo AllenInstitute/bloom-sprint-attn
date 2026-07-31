@@ -80,10 +80,12 @@ $$
 Attention logits:
 
 $$
-\ell_{ij}^{(h)} = \frac{(q_i^{(h)})^\top k_j^{(h)}}{\sqrt{d_n}}
+\ell_{ij}^{(h)} = \frac{(q_i^{(h)})^\top k_j^{(h)}}{\sqrt{d_v}}
 $$
 
-Here $d_n$ is the sequence encoding dimensionality. 
+Here $d_v$ is the per-head query/key dimension (the width of $q_i^{(h)}$ and
+$k_j^{(h)}$ after the $W_Q^{(h)}$, $W_K^{(h)}$ projections), i.e. standard
+scaled-dot-product attention scaling — not the sequence encoding input width $d_n$.
 These heads learn relationships among features based on sequence encodings of the DNA model.  
 
 ### 3.2 Position heads

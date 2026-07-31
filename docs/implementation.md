@@ -128,8 +128,8 @@ around 0 as $\Delta$ grows.
 
 Q and K are projected from the sequence encoding $n_i$ (from a DNA language
 model). V is projected from the content encoding $s_i = [n_i; m_i]$.
-Scaling is $1/\sqrt{d_{seq}}$ (the sequence encoding input dimension),
-passed explicitly to SDPA.
+Scaling is $1/\sqrt{d_v}$ (the per-head query/key dimension after the $W_Q$,
+$W_K$ projections — standard SDPA scaling), passed explicitly to SDPA.
 
 ### 4.2 Position heads (spec §3.2, §4.2)
 
